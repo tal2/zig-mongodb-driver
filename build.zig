@@ -11,6 +11,13 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const bson_dep = b.dependency("bson", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const bson_mod = bson_dep.module("bson");
+    lib_mod.addImport("bson", bson_mod);
+
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -18,6 +25,7 @@ pub fn build(b: *std.Build) void {
     });
 
     exe_mod.addImport("mongodb_driver_lib", lib_mod);
+    exe_mod.addImport("bson", bson_mod);
 
     const lib = b.addLibrary(.{
         .linkage = .static,
