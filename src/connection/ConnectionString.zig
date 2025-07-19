@@ -89,7 +89,7 @@ test "Test basic connection string" {
 
     var conn = try ConnectionString.fromText(allocator, "mongodb://localhost");
     defer conn.deinit(allocator);
-    try std.testing.expectEqualStrings("localhost", conn.hosts.items[0].domain_or_ip);
+    try std.testing.expectEqualStrings("localhost", conn.hosts.items[0].hostname);
     try std.testing.expectEqual(@as(usize, 1), conn.hosts.items.len);
     try std.testing.expectEqual(@as(usize, 0), conn.options.count());
     try std.testing.expectEqualStrings("admin", conn.auth_database);
@@ -103,9 +103,9 @@ test "Test multiple hosts" {
     var conn = try ConnectionString.fromText(allocator, "mongodb://host1,host2,host3");
     defer conn.deinit(allocator);
     try std.testing.expectEqual(@as(usize, 3), conn.hosts.items.len);
-    try std.testing.expectEqualStrings("host1", conn.hosts.items[0].domain_or_ip);
-    try std.testing.expectEqualStrings("host2", conn.hosts.items[1].domain_or_ip);
-    try std.testing.expectEqualStrings("host3", conn.hosts.items[2].domain_or_ip);
+    try std.testing.expectEqualStrings("host1", conn.hosts.items[0].hostname);
+    try std.testing.expectEqualStrings("host2", conn.hosts.items[1].hostname);
+    try std.testing.expectEqualStrings("host3", conn.hosts.items[2].hostname);
 }
 
 test "Test with options" {
@@ -136,7 +136,7 @@ test "Test with escaped characters" {
 
     var conn = try ConnectionString.fromText(allocator, "mongodb://local%2Fhost");
     defer conn.deinit(allocator);
-    try std.testing.expectEqualStrings("local/host", conn.hosts.items[0].domain_or_ip);
+    try std.testing.expectEqualStrings("local/host", conn.hosts.items[0].hostname);
 }
 
 test "Test error cases" {
