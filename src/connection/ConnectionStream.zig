@@ -28,14 +28,13 @@ pub const ConnectionStream = struct {
     }
 
     pub fn connect(self: *ConnectionStream) !void {
-        std.debug.print("[ConnectionStream] connect\n", .{});
         if (self.is_connected) {
             std.debug.print("[ConnectionStream] already connected\n", .{});
             return;
         }
 
         self.is_connected = true;
-        self.stream = try net.tcpConnectToHost(std.heap.page_allocator, "127.0.0.1", 27017);
+        self.stream = try net.tcpConnectToAddress(self.address);
     }
 
     /// caller owns the response
@@ -48,7 +47,6 @@ pub const ConnectionStream = struct {
     }
 
     pub fn waitForResponse(self: *ConnectionStream, allocator: std.mem.Allocator) !*OpcodeMsg {
-        std.debug.print("wait for response\n", .{});
         if (self.stream == null) {
             return error.NotConnected;
         }
@@ -67,7 +65,6 @@ pub const ConnectionStream = struct {
     }
 
     pub fn close(self: *ConnectionStream) void {
-        std.debug.print("[ConnectionStream] close\n", .{});
         if (self.is_connected) {
             self.stream.?.close();
             self.stream = null;
