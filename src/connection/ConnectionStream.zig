@@ -2,7 +2,7 @@ const std = @import("std");
 const ConnectionString = @import("ConnectionString.zig").ConnectionString;
 const net = std.net;
 const opcode = @import("../protocol/opcode.zig");
-const OpcodeMsg = opcode.OpcodeMsg;
+const OpcodeMsg = opcode.OpMsg;
 const RunCommandOptions = @import("../commands/RunCommandOptions.zig").RunCommandOptions;
 
 pub const ConnectionStream = struct {
@@ -39,11 +39,9 @@ pub const ConnectionStream = struct {
     }
 
     /// caller owns the response
-    pub fn runCommand(self: *ConnectionStream, allocator: std.mem.Allocator, command: *opcode.OpcodeMsg, options: *const RunCommandOptions) !*opcode.OpcodeMsg {
-        _ = options;
-
+    pub fn send(self: *ConnectionStream, allocator: std.mem.Allocator, op: *const opcode.OpMsg) !*opcode.OpMsg {
         const stream_writer = try self.writer();
-        try opcode.writeMessage(stream_writer, command);
+        try op.write(stream_writer);
 
         const response = try self.waitForResponse(allocator);
         return response;
