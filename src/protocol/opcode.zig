@@ -49,22 +49,26 @@ pub fn readMessage(allocator: Allocator, reader: anytype) !*OpMsg {
     reader_pos += @sizeOf(u32);
 
     const section_payload_type = try reader.readInt(u8, .little);
-    std.debug.assert(section_payload_type == DocumentSection.payload_type);
-    message.section_document.document = try BsonDocument.readDocument(allocator, reader);
 
-    reader_pos += @sizeOf(u8) + @as(i32, @intCast(message.section_document.document.len));
+    blk_section_payload_type: switch (section_payload_type) {
+        DocumentSection.payload_type => {
+            message.section_document.document = try BsonDocument.readDocument(allocator, reader);
+            reader_pos += @sizeOf(u8) + @as(i32, @intCast(message.section_document.document.len));
 
-    if (reader_pos == expected_message_len) {
-        return message;
+            if (reader_pos == expected_message_len) {
+                return message;
+            }
+            continue :blk_section_payload_type try reader.readInt(u8, .little);
+        },
+        SequenceSection.payload_type => {
+            reader_pos += @sizeOf(u8);
+            // message.section_sequence = try readSequence(reader);
+            @panic("not implemented");
+        },
+        else => return error.InvalidSectionPayloadType,
     }
-    std.debug.print("reader pos: {d}/{d}\n", .{ reader_pos, expected_message_len });
-    @panic("not implemented");
-    //  if (section_payload_type == SequenceSection.payload_type) {
-    //     message.section_sequence = try readSequence(reader);
-    // }
 
-    // std.debug.print("message.section_document.document.len: {}\n", .{message.section_document.document.len});
-    // return message;
+    unreachable;
 }
 
 fn calculateMessageLength(message: *const OpMsg) i32 {
@@ -111,7 +115,7 @@ pub const OpMsg = struct {
     flag_bits: u32,
     section_document: DocumentSection,
     section_sequence: ?SequenceSection = null,
-    checksum: ?u32 = null, // Optional checksum field
+    checksum: ?u32 = null,
 
     pub fn init(allocator: Allocator, command: *BsonDocument, request_id: i32, response_to: i32, flags: OpMsg.OpMsgFlags) Allocator.Error!*OpMsg {
         var message = try allocator.create(OpMsg);
@@ -132,15 +136,12 @@ pub const OpMsg = struct {
     pub fn deinit(self: *const OpMsg, allocator: Allocator) void {
         self.section_document.document.deinit(allocator);
         if (self.section_sequence) |seq| {
-            for (seq.documents) |doc| {
-                doc.deinit(allocator);
-            }
+            seq.deinit(allocator);
         }
         allocator.destroy(self);
     }
 
     pub fn write(self: *const OpMsg, writer: anytype) !void {
-        // std.debug.print("writeMessage, length: {d}\n", .{message.header.message_length});
         try writer.writeInt(i32, self.header.message_length, .little);
         try writer.writeInt(i32, self.header.request_id, .little);
         try writer.writeInt(i32, self.header.response_to, .little);
@@ -188,6 +189,17 @@ pub const OpMsg = struct {
             return flag_bits;
         }
 
+        pub inline fn isFlagHasMoreToComeSet(flag_bits: u32) bool {
+            return flag_bits & more_to_come_flag != 0;
+        }
+
+        pub inline fn isFlagHasChecksumSet(flag_bits: u32) bool {
+            return flag_bits & checksum_present_flag != 0;
+        }
+
+        pub inline fn isFlagHasExhaustAllowedSet(flag_bits: u32) bool {
+            return flag_bits & exhaust_allowed_flag != 0;
+        }
         // pub fn setExhaustAllowed(self: *OpMsgFlags) void {
         //     self.exhaust_allowed = true;
         // }
@@ -318,4 +330,12 @@ const SequenceSection = struct {
     size: i32,
     identifier: []const u8,
     documents: []*BsonDocument,
+
+    pub fn deinit(self: *const SequenceSection, allocator: Allocator) void {
+        for (self.documents) |doc| {
+            doc.deinit(allocator);
+        }
+        allocator.free(self.identifier);
+        allocator.destroy(self);
+    }
 };
