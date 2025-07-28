@@ -8,6 +8,7 @@ const HelloCommandResponse = @import("../commands/HelloCommand.zig").HelloComman
 const bson = @import("bson");
 const bson_types = bson.bson_types;
 const BsonObjectId = bson_types.BsonObjectId;
+const BsonUtcDatetime = bson_types.BsonUtcDatetime;
 
 pub const ServerType = enum {
     Standalone,
@@ -27,7 +28,7 @@ pub const ServerDescription = struct {
     @".error": ?[]const u8 = null, // information about the last error related to this server. Default null. MUST contain or be able to produce a string describing the error.
     round_trip_time: ?u64 = null, // the round trip time to the server. Default null.
     min_round_trip_time: ?u64 = null, // the minimum round trip time to the server. Default null.
-    last_write_date: ?bson_types.BsonUtcDatetime = null, // BSON datetime. The `lastWriteDate` from the server's most recent hello or legacy hello response.
+    last_write_date: ?BsonUtcDatetime = null, // BSON datetime. The `lastWriteDate` from the server's most recent hello or legacy hello response.
 
     /// an opTime or null. An opaque value representing the position in the oplog of the most recently seen write. Default null. (Only mongos and shard servers record this field when monitoring config servers as replica sets, at least until drivers allow applications to use readConcern "afterOptime".
     opTime: ?[]const u8 = null,
@@ -156,13 +157,24 @@ pub const ServerDescription = struct {
 };
 
 pub const ServerApiVersion = enum(u8) {
+    /// Stable API requires MongoDB Server 5.0 or later.
     v1 = 1,
+
+    pub fn value(self: ServerApiVersion) []const u8 {
+        return switch (self) {
+            .v1 => "1",
+        };
+    }
 };
 
 pub const ServerApi = struct {
-    pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
-
-    version: ServerApiVersion,
+    version: ?ServerApiVersion = null,
     strict: ?bool = null, // Default false
     deprecationErrors: ?bool = null, // Default false
+
+    pub inline fn addToCommand(self: *const ServerApi, command: anytype) void {
+        if (self.version) |version| command.apiVersion = version.value();
+        command.apiStrict = self.strict;
+        command.apiDeprecationErrors = self.deprecationErrors;
+    }
 };
