@@ -46,11 +46,10 @@ pub const OpcodeCompressed = struct {
 // }
 
 pub const CompressorId = enum(u8) {
-    compressorId = 0,
-    noop = 1,
-    snappy = 2,
-    zlib = 3,
-    zstd = 4,
+    noop = 0,
+    snappy = 1,
+    zlib = 2,
+    zstd = 3,
 
-    _, // 5...255 reserved
+    // _, // 4...255 reserved
 };
