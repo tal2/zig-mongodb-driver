@@ -3,10 +3,8 @@ const ConnectionString = @import("ConnectionString.zig").ConnectionString;
 const net = std.net;
 const opcode = @import("../protocol/opcode.zig");
 const OpcodeMsg = opcode.OpMsg;
-const RunCommandOptions = @import("../commands/RunCommandOptions.zig").RunCommandOptions;
 
 pub const ConnectionStream = struct {
-    is_connected: bool,
     address: net.Address,
     stream: ?net.Stream = null,
 
@@ -14,7 +12,6 @@ pub const ConnectionStream = struct {
         return .{
             .address = address,
             .stream = null,
-            .is_connected = false,
         };
     }
 
@@ -27,18 +24,20 @@ pub const ConnectionStream = struct {
         return init(address);
     }
 
-    pub fn connect(self: *ConnectionStream) !void {
-        if (self.is_connected) {
-            std.debug.print("[ConnectionStream] already connected\n", .{});
+    pub fn connect(self: *ConnectionStream) net.TcpConnectToAddressError!void {
+        if (self.stream) |_| {
             return;
         }
 
-        self.is_connected = true;
         self.stream = try net.tcpConnectToAddress(self.address);
     }
 
     /// caller owns the response
     pub fn send(self: *ConnectionStream, allocator: std.mem.Allocator, op: *const opcode.OpMsg) !*opcode.OpMsg {
+        if (opcode.OpMsg.OpMsgFlags.isFlagHasMoreToComeSet(op.flag_bits)) {
+            return error.ExhaustBitIsSet;
+        }
+
         const stream_writer = try self.writer();
         try op.write(stream_writer);
 
@@ -57,18 +56,17 @@ pub const ConnectionStream = struct {
         return msg;
     }
 
-    pub fn writer(self: *ConnectionStream) !net.Stream.Writer {
-        if (!self.is_connected) {
+    pub fn writer(self: *ConnectionStream) error{NotConnected}!net.Stream.Writer {
+        if (self.stream == null) {
             return error.NotConnected;
         }
         return self.stream.?.writer();
     }
 
     pub fn close(self: *ConnectionStream) void {
-        if (self.is_connected) {
-            self.stream.?.close();
+        if (self.stream) |stream| {
+            stream.close();
             self.stream = null;
-            self.is_connected = false;
         }
     }
 
