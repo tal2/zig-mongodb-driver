@@ -4,6 +4,8 @@ const bson = @import("bson");
 const utils = @import("../utils.zig");
 const opcode = @import("../protocol/opcode.zig");
 const topology = @import("../server-discovery-and-monitoring/topology.zig");
+const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
+const ClientMetadata = @import("../connection/ClientMetadata.zig").ClientMetadata;
 
 const Allocator = std.mem.Allocator;
 const bson_types = bson.bson_types;
@@ -11,11 +13,13 @@ const BsonDocument = bson.BsonDocument;
 const TopologyVersion = topology.TopologyVersion;
 const parseBsonDocument = utils.parseBsonDocument;
 
-pub fn makeHelloCommand(allocator: std.mem.Allocator, db_name: []const u8) !*opcode.OpMsg {
-    const command_data = .{
+pub fn makeHelloCommand(allocator: std.mem.Allocator, db_name: []const u8, server_api: ServerApi) !*opcode.OpMsg {
+    var command_data: HelloCommand = .{
         .hello = 1,
         .@"$db" = db_name,
     };
+    server_api.addToCommand(&command_data);
+
     const command = try BsonDocument.fromObject(allocator, @TypeOf(command_data), command_data);
     errdefer command.deinit(allocator);
 
@@ -23,14 +27,42 @@ pub fn makeHelloCommand(allocator: std.mem.Allocator, db_name: []const u8) !*opc
     return result;
 }
 
-pub fn makeHelloCommandForHandshake(allocator: std.mem.Allocator, db_name: []const u8, application_name: []const u8) !*opcode.OpMsg {
+const HelloCommand = struct {
+    pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
+    pub const ResponseType = HelloCommandResponse;
+
+    hello: i32,
+    @"$db": []const u8,
+
+    helloOk: ?bool = null,
+
+    client: ?ClientMetadata = null,
+
+    saslSupportedMechs: ?[]const u8 = null,
+
+    loadBalanced: ?bool = null,
+
+    apiVersion: ?[]const u8 = null,
+    apiStrict: ?bool = null,
+    apiDeprecationErrors: ?bool = null,
+
+    readPreference: ?[]const u8 = null,
+    timeoutMS: ?i64 = null,
+};
+
+pub fn makeHelloCommandForHandshake( //
+    allocator: std.mem.Allocator,
+    db_name: []const u8,
+    application_name: []const u8,
+    server_api: ServerApi,
+) !*opcode.OpMsg {
     const client_metadata_max_message_size_bytes = 512;
 
     std.debug.assert(application_name.len < 128);
     const driver_name = "Zig Driver"; // TODO: get from config
     const driver_version = "0.1.0"; // TODO: get from config
 
-    const command_data = .{
+    var command_data: HelloCommand = .{
         .hello = 1,
         .@"$db" = db_name,
         // .helloOk = true,
@@ -53,6 +85,8 @@ pub fn makeHelloCommandForHandshake(allocator: std.mem.Allocator, db_name: []con
 
         // .saslSupportedMechs = [0][]u8{},
     };
+
+    server_api.addToCommand(&command_data);
 
     const command = try BsonDocument.fromObject(allocator, @TypeOf(command_data), command_data);
     errdefer command.deinit(allocator);
@@ -78,26 +112,32 @@ pub const HelloCommandResponse = struct {
     readOnly: bool,
     ok: f64,
 
-    pub fn parseBson(allocator: Allocator, document: *BsonDocument) !*HelloCommandResponse {
-        const parsed = try parseBsonDocument(HelloCommandResponse, allocator, document, .{ .ignore_unknown_fields = false, .allocate = .alloc_if_needed });
-        defer parsed.deinit();
+    saslSupportedMechs: ?[]const []const u8 = null,
 
-        const response = try allocator.create(HelloCommandResponse);
-        const value = parsed.value;
-        // response.helloOk = value.helloOk;
-        response.isWritablePrimary = value.isWritablePrimary;
-        response.topologyVersion = value.topologyVersion;
-        response.maxBsonObjectSize = value.maxBsonObjectSize;
-        response.maxMessageSizeBytes = value.maxMessageSizeBytes;
-        response.maxWriteBatchSize = value.maxWriteBatchSize;
-        response.localTime = value.localTime;
-        response.logicalSessionTimeoutMinutes = value.logicalSessionTimeoutMinutes;
-        response.connectionId = value.connectionId;
-        response.minWireVersion = value.minWireVersion;
-        response.maxWireVersion = value.maxWireVersion;
-        response.readOnly = value.readOnly;
-        response.ok = value.ok;
+    pub fn dupe(self: *const HelloCommandResponse, allocator: Allocator) !*HelloCommandResponse {
+        const clone = try allocator.create(HelloCommandResponse);
+        errdefer clone.deinit(allocator);
 
-        return response;
+        // clone.helloOk = self.helloOk;
+        clone.isWritablePrimary = self.isWritablePrimary;
+        clone.topologyVersion = self.topologyVersion;
+        clone.maxBsonObjectSize = self.maxBsonObjectSize;
+        clone.maxMessageSizeBytes = self.maxMessageSizeBytes;
+        clone.maxWriteBatchSize = self.maxWriteBatchSize;
+        clone.localTime = self.localTime;
+        clone.logicalSessionTimeoutMinutes = self.logicalSessionTimeoutMinutes;
+        clone.connectionId = self.connectionId;
+        clone.minWireVersion = self.minWireVersion;
+        clone.maxWireVersion = self.maxWireVersion;
+        clone.readOnly = self.readOnly;
+        clone.ok = self.ok;
+
+        clone.saslSupportedMechs = self.saslSupportedMechs;
+
+        return clone;
+    }
+
+    pub fn parseBson(allocator: Allocator, document: *const BsonDocument) !*HelloCommandResponse {
+        return try utils.parseBsonToOwned(HelloCommandResponse, allocator, document);
     }
 };
