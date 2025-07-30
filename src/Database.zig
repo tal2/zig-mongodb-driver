@@ -10,9 +10,7 @@ const connection_stream = @import("connection/ConnectionStream.zig");
 const ConnectionStream = connection_stream.ConnectionStream;
 const ConnectionString = @import("connection/ConnectionString.zig").ConnectionString;
 
-const opcode = @import("protocol/opcode.zig");
 const Collection = @import("Collection.zig").Collection;
-const BsonDocument = bson.BsonDocument;
 const RunCommandOptions = commands.RunCommandOptions.RunCommandOptions;
 const HelloCommandResponse = commands.HelloCommand.HelloCommandResponse;
 
@@ -22,10 +20,12 @@ const TopologyDescription = server_discovery_and_monitoring.TopologyDescription;
 const ServerDescription = server_discovery_and_monitoring.ServerDescription;
 const ClientConfig = server_discovery_and_monitoring.ClientConfig;
 const Address = server_discovery_and_monitoring.Address;
-const TopologyVersion = server_discovery_and_monitoring.TopologyVersion;
-const TopologyType = server_discovery_and_monitoring.TopologyType;
-const ServerType = server_discovery_and_monitoring.ServerType;
 const ServerApi = server_discovery_and_monitoring.ServerApi;
+
+const MongoCredential = @import("./auth/MongoCredential.zig").MongoCredential;
+const sasl_commands = @import("./auth/sasl.zig");
+const SaslCommandResponse = sasl_commands.SaslCommandResponse;
+const utils = @import("utils.zig");
 
 pub const Database = struct {
     allocator: Allocator,
@@ -80,8 +80,18 @@ pub const Database = struct {
         // self.allocator.destroy(self);
     }
 
-    pub fn connect(self: *Database) !void {
+    pub fn connect(self: *Database, credentials: ?MongoCredential) !void {
+        if (credentials) |creds| {
+            try creds.validate();
+        }
+
         try self.stream.connect();
+
+        var current_server_description = try self.allocator.create(ServerDescription);
+        defer current_server_description.deinit(self.allocator);
+        current_server_description.address = self.client_config.seeds.items[0];
+
+        _ = try self.handshake(current_server_description, &self.stream, credentials);
 
         for (self.client_config.seeds.items) |seed| {
             var thread_context = try self.allocator.create(MonitoringThreadContext);
@@ -128,6 +138,8 @@ pub const Database = struct {
     }
 
     fn monitorServer(context: *MonitoringThreadContext) !void {
+        // Authentication (including mechanism negotiation) MUST NOT happen on monitoring-only sockets.
+
         const database = context.database;
         const allocator = context.allocator;
 
@@ -140,7 +152,7 @@ pub const Database = struct {
         defer stream.deinit();
         try stream.connect();
 
-        const server_description_updated = try database.handshake(current_server_description, &stream);
+        const server_description_updated = try database.handshake(current_server_description, &stream, null);
 
         var server_description_temp = current_server_description;
         current_server_description = server_description_updated;
@@ -181,13 +193,13 @@ pub const Database = struct {
         }
     }
 
-    fn handshake(self: *Database, current_server_description: *ServerDescription, conn_stream: *ConnectionStream) !*ServerDescription {
+    fn handshake(self: *Database, current_server_description: *ServerDescription, conn_stream: *ConnectionStream, credentials: ?MongoCredential) !*ServerDescription {
         const allocator = self.allocator;
 
         // const options: RunCommandOptions = .{
         //     .readPreference = .primary,
         // };
-        const command = try commands.makeHelloCommand(allocator, self.db_name, self.server_api);
+        const command = try commands.makeHelloCommandForHandshake(allocator, self.db_name, "Zig Driver", self.server_api, credentials);
         defer command.deinit(allocator);
 
         const start_time = time.milliTimestamp();
@@ -201,12 +213,66 @@ pub const Database = struct {
         defer allocator.destroy(hello_response);
         defer result.deinit(allocator);
 
+        if (credentials) |creds| {
+            try self.authConversation(allocator, conn_stream, creds);
+        }
+
         const now = time.milliTimestamp();
 
         const end_time = time.milliTimestamp();
         const round_trip_time: u64 = @intCast(end_time - start_time);
 
         return try self.handleHelloResponse(current_server_description, hello_response, now, round_trip_time);
+    }
+
+    fn authConversation(self: *Database, allocator: Allocator, conn_stream: *ConnectionStream, creds: MongoCredential) !void {
+        var arena = std.heap.ArenaAllocator.init(allocator);
+        defer arena.deinit();
+        const arena_allocator = arena.allocator();
+
+        var auth_conversation = try creds.toAuthConversation(arena_allocator);
+        defer auth_conversation.deinit();
+        const mechanism = creds.mechanism;
+
+        const db_name = creds.source orelse self.db_name;
+
+        const payload_start = try auth_conversation.next();
+        if (payload_start == null) {
+            return error.AuthConversationPayloadIsNull;
+        }
+
+        const payload_start_base64 = try utils.base64Encode(arena_allocator, payload_start.?);
+        const sasl_start_command = try sasl_commands.makeSaslStartCommand(arena_allocator, mechanism, payload_start_base64, db_name, self.server_api);
+        var sasl_command = sasl_start_command;
+
+        var is_done = false;
+        while (!is_done) {
+            const response = try conn_stream.send(arena_allocator, sasl_command);
+
+            const sasl_response = try SaslCommandResponse.parseBson(arena_allocator, response.section_document.document);
+
+            if (sasl_response.ok != 1) {
+                return error.AuthenticationFailed;
+            }
+
+            const response_payload = sasl_response.payload.?;
+            const response_payload_decoded = try utils.base64Decode(arena_allocator, response_payload);
+            try auth_conversation.handleResponse(response_payload_decoded);
+
+            if (sasl_response.done) {
+                break;
+            }
+
+            const payload = try auth_conversation.next();
+            if (payload == null) {
+                return error.AuthConversationPayloadIsNull;
+            }
+
+            const payload_base64 = try utils.base64Encode(arena_allocator, payload.?);
+
+            sasl_command = try sasl_commands.makeSaslContinueCommand(arena_allocator, sasl_response.conversationId.?, payload_base64, db_name, self.server_api);
+            is_done = sasl_response.done;
+        }
     }
 
     fn handleHelloResponse(self: *Database, current_server_description: *ServerDescription, hello_response: *commands.HelloCommandResponse, last_update_time: i64, round_trip_time: u64) !*ServerDescription {
