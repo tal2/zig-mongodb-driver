@@ -96,7 +96,7 @@ pub fn makeInsertMany(
             try documents_parsed.append(document);
         } else {
             const document_parsed = try bson.BsonDocument.fromObject(arena_allocator, @TypeOf(document), document);
-            defer document_parsed.deinit(arena_allocator);
+            errdefer document_parsed.deinit(arena_allocator);
             try documents_parsed.append(document_parsed);
         }
     }
