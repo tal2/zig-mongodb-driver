@@ -18,7 +18,8 @@ const insert_commands = @import("commands/InsertCommand.zig");
 const delete_commands = @import("commands/DeleteCommand.zig");
 const replace_commands = @import("commands/ReplaceCommand.zig");
 const update_commands = @import("commands/UpdateCommand.zig");
-const update_many_commands = @import("commands/UpdateManyCommand.zig");
+const UpdateCommand = update_commands.UpdateCommand;
+const UpdateCommandChainable = commands.UpdateCommandChainable;
 const FindCommandResponse = commands.FindCommandResponse;
 const InsertCommandResponse = insert_commands.InsertCommandResponse;
 const DeleteCommandResponse = delete_commands.DeleteCommandResponse;
@@ -152,6 +153,10 @@ pub const Collection = struct {
         return try UpdateCommandResponse.parseBson(self.allocator, response.section_document.document);
     }
 
+    pub fn updateChain(self: *const Collection) UpdateCommandChainable {
+        return UpdateCommandChainable.init(self);
+    }
+
     pub fn aggregate(self: *const Collection, pipeline: anytype, options: FindOptions, cursor_options: CursorOptions) !CursorIterator {
         const command = try commands.makeAggregateCommand(self.allocator, self.collection_name, pipeline, options, cursor_options, null, self.database.db_name, self.server_api);
         defer command.deinit(self.allocator);
@@ -226,14 +231,23 @@ pub const Collection = struct {
             if (!@hasDecl(ResponseType, "parseBson")) {
                 @compileError("runCommand command param type must have a parseBson method");
             }
+            if (@typeInfo(@TypeOf(options)) != .null and !@hasDecl(@TypeOf(options), "addToCommand")) {
+                @compileError("runCommand options param must have an addToCommand method");
+            }
         }
 
         command.*.@"$db" = self.database.db_name;
-        options.addToCommand(command);
+        if (comptime @typeInfo(@TypeOf(options)) != .null) {
+            options.addToCommand(command);
+        }
+
         self.server_api.addToCommand(command);
 
         var command_serialized = try BsonDocument.fromObject(self.allocator, @TypeOf(command), command);
         errdefer command_serialized.deinit(self.allocator);
+
+        const command_json = try command_serialized.toJsonString(self.allocator, true);
+        defer self.allocator.free(command_json);
 
         const command_op_msg = try opcode.OpMsg.init(self.allocator, command_serialized, 1, 0, .{});
         defer command_op_msg.deinit(self.allocator);

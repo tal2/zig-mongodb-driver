@@ -4,12 +4,88 @@ const utils = @import("../utils.zig");
 const opcode = @import("../protocol/opcode.zig");
 
 const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
 const BsonDocument = bson.BsonDocument;
 const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
 const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
 const Collation = @import("./Collation.zig").Collation;
+const Collection = @import("../Collection.zig").Collection;
 
 pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
+
+pub fn makeUpdateCommand(
+    allocator: std.mem.Allocator,
+    collection_name: []const u8,
+    update_statements: []const UpdateStatement,
+    options: UpdateOptions,
+    max_wire_version: ?i32, // maxWireVersion from handshake
+    db_name: []const u8,
+    server_api: ServerApi,
+) !*opcode.OpMsg {
+    _ = max_wire_version;
+
+    var command_data: UpdateCommand = .{
+        .update = collection_name,
+        .updates = update_statements,
+        .@"$db" = db_name,
+        .collation = options.collation,
+        .ordered = options.ordered,
+        .let = options.let,
+    };
+    server_api.addToCommand(&command_data);
+
+    var command = try BsonDocument.fromObject(allocator, @TypeOf(command_data), command_data);
+    errdefer command.deinit(allocator);
+
+    const result = try opcode.OpMsg.init(allocator, command, 1, 0, .{});
+    return result;
+}
+
+pub const UpdateStatementBuilder = struct {
+    allocator: std.mem.Allocator,
+    update_statements: ArrayList(UpdateStatement),
+
+    pub fn init(allocator: std.mem.Allocator) UpdateStatementBuilder {
+        return .{
+            .allocator = allocator,
+            .update_statements = ArrayList(UpdateStatement).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *UpdateStatementBuilder) void {
+        for (self.update_statements.items) |item| item.deinit(self.allocator);
+        self.update_statements.deinit();
+    }
+
+    pub fn toOwnedSlice(self: *UpdateStatementBuilder) Allocator.Error![]UpdateStatement {
+        return try self.update_statements.toOwnedSlice();
+    }
+    pub fn add(self: *UpdateStatementBuilder, filter: anytype, update: anytype, options: UpdateStatementOptions) !void {
+        var filter_parsed = try BsonDocument.fromObject(self.allocator, @TypeOf(filter), filter);
+        errdefer filter_parsed.deinit(self.allocator);
+
+        var update_parsed = try BsonDocument.fromObject(self.allocator, @TypeOf(update), update);
+        errdefer update_parsed.deinit(self.allocator);
+
+        const update_statement = try self.allocator.create(UpdateStatement);
+        errdefer self.allocator.destroy(update_statement);
+
+        update_statement.* = UpdateStatement{
+            .q = filter_parsed.*,
+            .u = update_parsed.*, // TODO: add support for pipelines
+            .multi = options.multi,
+            .collation = options.collation,
+            .upsert = options.upsert,
+            .arrayFilters = options.array_filters,
+        };
+
+        try self.update_statements.append(update_statement.*);
+    }
+
+    pub fn build(self: *UpdateStatementBuilder) UpdateStatement {
+        return self.update_statements;
+    }
+};
 
 pub fn makeUpdateOneCommand(
     allocator: std.mem.Allocator,
@@ -21,41 +97,61 @@ pub fn makeUpdateOneCommand(
     db_name: []const u8,
     server_api: ServerApi,
 ) !*opcode.OpMsg {
-    _ = max_wire_version;
     var filter_parsed = try BsonDocument.fromObject(allocator, @TypeOf(filter), filter);
     defer filter_parsed.deinit(allocator);
 
     var update_parsed = try BsonDocument.fromObject(allocator, @TypeOf(update), update);
     defer update_parsed.deinit(allocator);
 
-    var command_data: UpdateCommand = .{
-        .update = collection_name,
-        .updates = &[_]UpdateStatement{UpdateStatement{
-            .q = filter_parsed.*,
-            .u = update_parsed.*,
-            .multi = false, // updateOne only updates one document
-            .upsert = options.upsert,
-            .arrayFilters = options.array_filters,
-        }},
-        .@"$db" = db_name,
-        .collation = options.collation,
-        // .writeConcern = options.write_concern,
-        .let = options.let,
-        // .maxTimeMS = null,
+    const update_statement = UpdateStatement{
+        .q = filter_parsed.*,
+        .u = update_parsed.*,
+        .multi = false, // updateOne only updates one document
+        .upsert = options.upsert,
+        .arrayFilters = options.array_filters,
     };
-    server_api.addToCommand(&command_data);
-    if (options.run_command_options) |run_command_options| run_command_options.addToCommand(&command_data);
 
-    var command = try BsonDocument.fromObject(allocator, @TypeOf(command_data), command_data);
-    errdefer command.deinit(allocator);
+    const update_statements = [_]UpdateStatement{update_statement};
 
-    const result = try opcode.OpMsg.init(allocator, command, 1, 0, .{});
-    return result;
+    return makeUpdateCommand(allocator, collection_name, &update_statements, options, max_wire_version, db_name, server_api);
+}
+
+pub fn makeUpdateManyCommand(
+    allocator: std.mem.Allocator,
+    collection_name: []const u8,
+    filter: anytype,
+    update: anytype,
+    options: UpdateOptions,
+    max_wire_version: ?i32, // maxWireVersion from handshake
+    db_name: []const u8,
+    server_api: ServerApi,
+) !*opcode.OpMsg {
+    var filter_parsed = try BsonDocument.fromObject(allocator, @TypeOf(filter), filter);
+    defer filter_parsed.deinit(allocator);
+
+    var update_parsed = try BsonDocument.fromObject(allocator, @TypeOf(update), update);
+    defer update_parsed.deinit(allocator);
+
+    const update_statement = UpdateStatement{
+        .q = filter_parsed.*,
+        .u = update_parsed.*,
+        .multi = true,
+        .upsert = options.upsert,
+        .arrayFilters = options.array_filters,
+    };
+
+    const update_statements = [_]UpdateStatement{update_statement};
+
+    return makeUpdateCommand(allocator, collection_name, &update_statements, options, max_wire_version, db_name, server_api);
 }
 
 /// @see https://www.mongodb.com/docs/manual/reference/command/update/
-const UpdateCommand = struct {
+pub const UpdateCommand = struct {
     pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
+
+    pub fn deinit(self: *const UpdateCommand, allocator: Allocator) void {
+        for (self.updates) |update| update.deinit(allocator);
+    }
 
     /// The name of the target collection.
     update: []const u8,
@@ -90,7 +186,6 @@ const UpdateCommand = struct {
     apiDeprecationErrors: ?bool = null,
 
     // RunCommandOptions
-    readPreference: ?[]const u8 = null,
     timeoutMS: ?i64 = null,
     // session: ?ClientSession = null,
 };
@@ -98,12 +193,20 @@ const UpdateCommand = struct {
 pub const UpdateStatement = struct {
     pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
 
+    pub fn deinit(self: *const UpdateStatement, allocator: Allocator) void {
+        self.q.deinit(allocator);
+        self.u.deinit(allocator);
+    }
+
     /// The query that matches documents to update.
     q: BsonDocument,
 
     /// The update document or pipeline that specifies the modifications to apply.
     u: BsonDocument, // TODO: add support for pipelines
 
+    /// since mongodb v5.0
+    // @see https://www.mongodb.com/docs/v7.0/reference/command/update/#std-label-update-command-c
+    c: ?bson.BsonDocument = null,
     multi: bool,
 
     upsert: ?bool = null,
@@ -117,7 +220,13 @@ pub const UpdateStatement = struct {
     //     document: bson.BsonDocument,
     // } = null,
 
-    sort: ?bson.BsonDocument = null,
+};
+
+pub const UpdateStatementOptions = struct {
+    upsert: ?bool = null,
+    multi: bool,
+    array_filters: ?[]bson.BsonDocument = null,
+    collation: ?Collation = null,
 };
 
 pub const UpdateCommandResponse = struct {
@@ -204,10 +313,6 @@ pub const UpdateCommandResponse = struct {
 };
 
 pub const UpdateOptions = struct {
-    run_command_options: ?RunCommandOptions = null,
-
-    array_filters: ?[]bson.BsonDocument = null,
-
     bypass_document_validation: ?bool = null,
 
     collation: ?Collation = null,
@@ -216,6 +321,8 @@ pub const UpdateOptions = struct {
     //     string: []const u8,
     //     document: bson.BsonDocument,
     // } = null,
+
+    array_filters: ?[]bson.BsonDocument = null,
 
     upsert: ?bool = null,
 
@@ -229,4 +336,51 @@ pub const UpdateOptions = struct {
 
     // /// @since MongoDB 8.2
     // raw_data: ?bool = null,
+};
+
+pub const UpdateCommandChainable = struct {
+    collection: *const Collection,
+    builder: UpdateStatementBuilder,
+    err: ?anyerror = null,
+
+    pub fn init(collection: *const Collection) UpdateCommandChainable {
+        return .{
+            .collection = collection,
+            .builder = UpdateStatementBuilder.init(collection.allocator),
+        };
+    }
+
+    pub fn deinit(self: *UpdateCommandChainable) void {
+        self.builder.deinit();
+    }
+
+    pub fn add(self: *UpdateCommandChainable, filter: anytype, update: anytype, options: UpdateStatementOptions) *UpdateCommandChainable {
+        if (self.err != null) {
+            return self;
+        }
+        self.builder.add(filter, update, options) catch |err| {
+            self.err = err;
+            return self;
+        };
+        return self;
+    }
+
+    pub fn exec(self: *UpdateCommandChainable, options: UpdateOptions) !*UpdateCommandResponse {
+        if (self.err) |err| {
+            return err;
+        }
+
+        const update_statements = try self.builder.toOwnedSlice();
+        defer self.builder.deinit();
+
+        var command: UpdateCommand = .{
+            .update = self.collection.collection_name,
+            .updates = update_statements,
+            .@"$db" = self.collection.database.db_name,
+            .collation = options.collation,
+            .ordered = options.ordered,
+            .let = options.let,
+        };
+        return self.collection.runCommand(&command, null, UpdateCommandResponse);
+    }
 };
