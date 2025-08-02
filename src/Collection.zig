@@ -17,10 +17,13 @@ const commands = @import("commands/root.zig");
 const insert_commands = @import("commands/InsertCommand.zig");
 const delete_commands = @import("commands/DeleteCommand.zig");
 const replace_commands = @import("commands/ReplaceCommand.zig");
+const update_commands = @import("commands/UpdateCommand.zig");
+const update_many_commands = @import("commands/UpdateManyCommand.zig");
 const FindCommandResponse = commands.FindCommandResponse;
 const InsertCommandResponse = insert_commands.InsertCommandResponse;
 const DeleteCommandResponse = delete_commands.DeleteCommandResponse;
 const ReplaceCommandResponse = replace_commands.ReplaceCommandResponse;
+const UpdateCommandResponse = update_commands.UpdateCommandResponse;
 const Limit = commands.command_types.Limit;
 const LimitNumbered = commands.command_types.LimitNumbered;
 const FindOptions = commands.FindOptions;
@@ -29,6 +32,7 @@ const InsertOneOptions = insert_commands.InsertOneOptions;
 const InsertManyOptions = insert_commands.InsertManyOptions;
 const DeleteOptions = delete_commands.DeleteOptions;
 const ReplaceOptions = replace_commands.ReplaceOptions;
+const UpdateOptions = update_commands.UpdateOptions;
 const CursorIterator = commands.CursorIterator;
 const AggregateOptions = commands.AggregateOptions;
 const CursorOptions = commands.CursorOptions;
@@ -128,6 +132,24 @@ pub const Collection = struct {
 
         const response = try self.database.stream.send(self.allocator, command_replace);
         return try ReplaceCommandResponse.parseBson(self.allocator, response.section_document.document);
+    }
+
+    pub fn updateOne(self: *const Collection, filter: anytype, update: anytype, options: UpdateOptions) !*UpdateCommandResponse {
+        const command_update = try commands.makeUpdateOneCommand(self.allocator, self.collection_name, filter, update, options, null, self.database.db_name, self.server_api);
+
+        defer command_update.deinit(self.allocator);
+
+        const response = try self.database.stream.send(self.allocator, command_update);
+        return try UpdateCommandResponse.parseBson(self.allocator, response.section_document.document);
+    }
+
+    pub fn updateMany(self: *const Collection, filter: anytype, update: anytype, options: UpdateOptions) !*UpdateCommandResponse {
+        const command_update = try commands.makeUpdateManyCommand(self.allocator, self.collection_name, filter, update, options, null, self.database.db_name, self.server_api);
+
+        defer command_update.deinit(self.allocator);
+
+        const response = try self.database.stream.send(self.allocator, command_update);
+        return try UpdateCommandResponse.parseBson(self.allocator, response.section_document.document);
     }
 
     pub fn aggregate(self: *const Collection, pipeline: anytype, options: FindOptions, cursor_options: CursorOptions) !CursorIterator {

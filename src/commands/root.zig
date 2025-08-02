@@ -32,6 +32,14 @@ pub const InsertManyOptions = InsertCommand.InsertManyOptions;
 pub const InsertOneOptions = InsertCommand.InsertOneOptions;
 pub const InsertCommandResponse = InsertCommand.InsertCommandResponse;
 
+pub const UpdateCommand = @import("./UpdateCommand.zig");
+pub const UpdateOptions = UpdateCommand.UpdateOptions;
+pub const UpdateCommandResponse = UpdateCommand.UpdateCommandResponse;
+pub const makeUpdateOneCommand = UpdateCommand.makeUpdateOneCommand;
+
+pub const UpdateManyCommand = @import("./UpdateManyCommand.zig");
+pub const makeUpdateManyCommand = UpdateManyCommand.makeUpdateManyCommand;
+
 pub const count_commands = @import("./CountCommand.zig");
 pub const makeCountCommand = count_commands.makeCountCommand;
 pub const CountCommandResponse = count_commands.CountCommandResponse;
@@ -65,6 +73,8 @@ test {
     _ = @import("./FindOneCommand.zig");
     _ = @import("./DeleteCommand.zig");
     _ = @import("./ReplaceCommand.zig");
+    _ = @import("./UpdateCommand.zig");
+    _ = @import("./UpdateManyCommand.zig");
     _ = @import("./RunCommandOptions.zig");
     _ = @import("./HelloCommand.zig");
     _ = @import("./InsertCommand.zig");
