@@ -16,9 +16,11 @@ const utils = @import("utils.zig");
 const commands = @import("commands/root.zig");
 const insert_commands = @import("commands/InsertCommand.zig");
 const delete_commands = @import("commands/DeleteCommand.zig");
+const replace_commands = @import("commands/ReplaceCommand.zig");
 const FindCommandResponse = commands.FindCommandResponse;
 const InsertCommandResponse = insert_commands.InsertCommandResponse;
 const DeleteCommandResponse = delete_commands.DeleteCommandResponse;
+const ReplaceCommandResponse = replace_commands.ReplaceCommandResponse;
 const Limit = commands.command_types.Limit;
 const LimitNumbered = commands.command_types.LimitNumbered;
 const FindOptions = commands.FindOptions;
@@ -26,6 +28,7 @@ const FindOneOptions = commands.FindOneOptions;
 const InsertOneOptions = insert_commands.InsertOneOptions;
 const InsertManyOptions = insert_commands.InsertManyOptions;
 const DeleteOptions = delete_commands.DeleteOptions;
+const ReplaceOptions = replace_commands.ReplaceOptions;
 const CursorIterator = commands.CursorIterator;
 const AggregateOptions = commands.AggregateOptions;
 const CursorOptions = commands.CursorOptions;
@@ -116,6 +119,15 @@ pub const Collection = struct {
 
         const response = try self.database.stream.send(self.allocator, command_delete);
         return try DeleteCommandResponse.parseBson(self.allocator, response.section_document.document);
+    }
+
+    pub fn replaceOne(self: *const Collection, filter: anytype, replacement: anytype, options: ReplaceOptions) !*ReplaceCommandResponse {
+        const command_replace = try commands.makeReplaceCommand(self.allocator, self.collection_name, filter, replacement, options, null, self.database.db_name, self.server_api);
+
+        defer command_replace.deinit(self.allocator);
+
+        const response = try self.database.stream.send(self.allocator, command_replace);
+        return try ReplaceCommandResponse.parseBson(self.allocator, response.section_document.document);
     }
 
     pub fn aggregate(self: *const Collection, pipeline: anytype, options: FindOptions, cursor_options: CursorOptions) !CursorIterator {

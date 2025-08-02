@@ -15,6 +15,11 @@ pub const DeleteCommand = @import("./DeleteCommand.zig");
 pub const DeleteCommandResponse = DeleteCommand.DeleteCommandResponse;
 pub const DeleteOptions = DeleteCommand.DeleteOptions;
 
+pub const ReplaceCommand = @import("./ReplaceCommand.zig");
+pub const ReplaceCommandResponse = ReplaceCommand.ReplaceCommandResponse;
+pub const makeReplaceCommand = ReplaceCommand.makeReplaceCommand;
+pub const ReplaceOptions = ReplaceCommand.ReplaceOptions;
+
 pub const command_types = @import("./types.zig");
 pub const RunCommandOptions = @import("./RunCommandOptions.zig");
 pub const HelloCommand = @import("./HelloCommand.zig");
@@ -59,6 +64,7 @@ test {
     _ = @import("./FindCommand.zig");
     _ = @import("./FindOneCommand.zig");
     _ = @import("./DeleteCommand.zig");
+    _ = @import("./ReplaceCommand.zig");
     _ = @import("./RunCommandOptions.zig");
     _ = @import("./HelloCommand.zig");
     _ = @import("./InsertCommand.zig");
