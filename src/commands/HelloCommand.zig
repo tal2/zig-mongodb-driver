@@ -6,6 +6,7 @@ const opcode = @import("../protocol/opcode.zig");
 const topology = @import("../server-discovery-and-monitoring/topology.zig");
 const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
 const ClientMetadata = @import("../connection/ClientMetadata.zig").ClientMetadata;
+const MongoCredential = @import("../auth/MongoCredential.zig").MongoCredential;
 
 const Allocator = std.mem.Allocator;
 const bson_types = bson.bson_types;
@@ -54,6 +55,7 @@ pub fn makeHelloCommandForHandshake( //
     db_name: []const u8,
     application_name: []const u8,
     server_api: ServerApi,
+    credentials: ?MongoCredential,
 ) !*opcode.OpMsg {
     const client_metadata_max_message_size_bytes = 512;
 
@@ -84,6 +86,21 @@ pub fn makeHelloCommandForHandshake( //
 
         // .saslSupportedMechs = [0][]u8{},
     };
+
+    if (credentials) |creds| {
+        switch (creds.mechanism) {
+            .SCRAM_SHA_256 => {
+                if (creds.username == null) {
+                    return error.MissingUsername;
+                }
+                if (creds.source == null) {
+                    return error.MissingSource;
+                }
+                command_data.saslSupportedMechs = try std.fmt.allocPrint(allocator, "{s}.{s}", .{ creds.source.?, creds.username.? });
+            },
+            else => {},
+        }
+    }
 
     server_api.addToCommand(&command_data);
 
