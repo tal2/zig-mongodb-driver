@@ -8,6 +8,7 @@ const BsonDocument = bson.BsonDocument;
 const Limit = @import("types.zig").Limit;
 const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
 const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
+const Collation = @import("./Collation.zig").Collation;
 
 pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
 
@@ -157,26 +158,6 @@ pub const DeleteCommandResponse = struct {
     pub fn parseBson(allocator: Allocator, document: *const BsonDocument) !*DeleteCommandResponse {
         return try document.toObject(allocator, DeleteCommandResponse, .{ .ignore_unknown_fields = true });
     }
-};
-
-pub const Collation = struct {
-    pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
-
-    locale: []const u8,
-
-    caseLevel: ?bool = null,
-
-    caseFirst: ?[]const u8 = null,
-
-    strength: ?i32 = null,
-
-    numericOrdering: ?bool = null,
-
-    alternate: ?[]const u8 = null,
-
-    maxVariable: ?[]const u8 = null,
-
-    backwards: ?bool = null,
 };
 
 pub const DeleteOptions = struct {
