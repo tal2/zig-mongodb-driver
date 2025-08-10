@@ -8,14 +8,14 @@ pub const WriteError = struct {
     index: i32,
     code: i32,
     errmsg: ?[]const u8 = null,
-    err_info: ?*BsonDocument = null,
+    errInfo: ?*BsonDocument = null,
 
     pub fn deinit(self: *const WriteError, allocator: Allocator) void {
         if (self.errmsg != null) {
             const err_msg = self.errmsg.?;
             allocator.free(err_msg);
         }
-        if (self.err_info) |err_info| {
+        if (self.errInfo) |err_info| {
             err_info.deinit(allocator);
         }
         allocator.destroy(self);
@@ -28,7 +28,7 @@ pub const WriteError = struct {
         var index: ?i32 = null;
         var code: ?i32 = null;
         var errmsg: ?[]const u8 = null;
-        var err_info: ?*BsonDocument = null;
+        var errInfo: ?*BsonDocument = null;
 
         blk: switch (try source.next()) {
             .string => |key| {
@@ -47,7 +47,7 @@ pub const WriteError = struct {
                     errmsg = try allocator.dupe(u8, errmsg_value.string);
                     continue :blk try source.next();
                 }
-                if (err_info == null and std.mem.eql(u8, key, "errInfo")) {
+                if (errInfo == null and std.mem.eql(u8, key, "errInfo")) {
                     const doc = BsonDocument.fromJsonReader(allocator, source) catch |err| {
                         switch (err) {
                             JsonParseError.OutOfMemory => return JsonParseError.OutOfMemory,
@@ -60,7 +60,7 @@ pub const WriteError = struct {
                             },
                         }
                     };
-                    err_info = doc;
+                    errInfo = doc;
                     continue :blk try source.next();
                 }
             },
@@ -76,7 +76,7 @@ pub const WriteError = struct {
             .index = index.?,
             .code = code.?,
             .errmsg = errmsg,
-            .err_info = err_info,
+            .errInfo = errInfo,
         };
     }
 
@@ -87,12 +87,12 @@ pub const WriteError = struct {
         clone.index = self.index;
         clone.code = self.code;
         clone.errmsg = if (self.errmsg) |errmsg| try allocator.dupe(u8, errmsg) else null;
-        clone.err_info = if (self.err_info) |err_info| try err_info.dupe(allocator) else null;
+        clone.errInfo = if (self.errInfo) |errInfo| try errInfo.dupe(allocator) else null;
 
         return clone;
     }
 
     pub fn parseBson(allocator: Allocator, document: *BsonDocument) !*WriteError {
-        return try utils.parseBsonToOwned(WriteError, allocator, document);
+        return try document.toObject(allocator, WriteError, .{ .ignore_unknown_fields = true });
     }
 };

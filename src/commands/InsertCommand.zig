@@ -153,14 +153,14 @@ const InsertCommand = struct {
 pub const InsertCommandResponse = struct {
     ok: f64,
     n: i32,
-    write_errors: ?[]*WriteError = null,
-    write_concern_error: ?*WriteConcernError = null,
+    writeErrors: ?[]*WriteError = null,
+    writeConcernError: ?*WriteConcernError = null,
 
     pub fn deinit(self: *const InsertCommandResponse, allocator: Allocator) void {
-        if (self.write_concern_error) |write_concern_error| {
+        if (self.writeConcernError) |write_concern_error| {
             write_concern_error.deinit(allocator);
         }
-        if (self.write_errors) |errors| {
+        if (self.writeErrors) |errors| {
             for (errors) |write_error| {
                 write_error.deinit(allocator);
             }
@@ -233,8 +233,8 @@ pub const InsertCommandResponse = struct {
         return .{
             .ok = ok.?,
             .n = n.?,
-            .write_errors = write_errors,
-            .write_concern_error = write_concern_error,
+            .writeErrors = write_errors,
+            .writeConcernError = write_concern_error,
         };
     }
 
@@ -244,7 +244,7 @@ pub const InsertCommandResponse = struct {
         response.ok = self.ok;
         response.n = self.n;
 
-        if (self.write_errors) |errors| {
+        if (self.writeErrors) |errors| {
             var write_errors = std.ArrayList(*WriteError).init(allocator);
             errdefer write_errors.deinit();
 
@@ -254,21 +254,21 @@ pub const InsertCommandResponse = struct {
                 try write_errors.append(write_error);
             }
 
-            response.write_errors = try write_errors.toOwnedSlice();
+            response.writeErrors = try write_errors.toOwnedSlice();
         } else {
-            response.write_errors = null;
+            response.writeErrors = null;
         }
 
-        if (self.write_concern_error) |error_doc| {
-            response.write_concern_error = try error_doc.dupe(allocator);
+        if (self.writeConcernError) |error_doc| {
+            response.writeConcernError = try error_doc.dupe(allocator);
         } else {
-            response.write_concern_error = null;
+            response.writeConcernError = null;
         }
 
         return response;
     }
 
     pub fn parseBson(allocator: Allocator, document: *const BsonDocument) !*InsertCommandResponse {
-        return try utils.parseBsonToOwned(InsertCommandResponse, allocator, document);
+        return try document.toObject(allocator, InsertCommandResponse, .{ .ignore_unknown_fields = true });
     }
 };

@@ -111,7 +111,7 @@ pub const DeleteStatement = struct {
 pub const DeleteCommandResponse = struct {
     acknowledged: ?bool = null,
 
-    deleted_count: i64,
+    n: i64,
 
     pub fn jsonParse(allocator: Allocator, source: *std.json.Scanner, options: std.json.ParseOptions) JsonParseError!DeleteCommandResponse {
         _ = allocator;
@@ -140,7 +140,7 @@ pub const DeleteCommandResponse = struct {
         if (ok == null or n == null) return error.UnexpectedToken;
 
         return .{
-            .deleted_count = n.?,
+            .n = n.?,
         };
     }
 
@@ -149,13 +149,13 @@ pub const DeleteCommandResponse = struct {
         errdefer clone.deinit(allocator);
 
         clone.acknowledged = self.acknowledged;
-        clone.deleted_count = self.deleted_count;
+        clone.n = self.n;
 
         return clone;
     }
 
     pub fn parseBson(allocator: Allocator, document: *const BsonDocument) !*DeleteCommandResponse {
-        return try utils.parseBsonToOwned(DeleteCommandResponse, allocator, document);
+        return try document.toObject(allocator, DeleteCommandResponse, .{ .ignore_unknown_fields = true });
     }
 };
 

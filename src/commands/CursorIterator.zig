@@ -20,12 +20,12 @@ pub const CursorIterator = struct {
     count: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator, collection: *const Collection, find_command_response: *const FindCommandResponse, options: FindOptions) !CursorIterator {
-        const first_batch_size = find_command_response.cursor.first_batch.?.len;
+        const first_batch_size = find_command_response.cursor.firstBatch.?.len;
         var buffer = try std.ArrayList(*BsonDocument).initCapacity(allocator, first_batch_size);
         errdefer buffer.deinit();
 
-        try buffer.appendSlice(find_command_response.cursor.first_batch.?);
-        find_command_response.cursor.first_batch = null;
+        try buffer.appendSlice(find_command_response.cursor.firstBatch.?);
+        find_command_response.cursor.firstBatch = null;
 
         return .{
             .allocator = allocator,
@@ -73,9 +73,9 @@ pub const CursorIterator = struct {
 
             self.cursor_id = find_command_response.cursor.id;
 
-            if (find_command_response.cursor.next_batch) |next_batch| {
+            if (find_command_response.cursor.nextBatch) |next_batch| {
                 try self.buffer.appendSlice(next_batch);
-                find_command_response.cursor.next_batch = null;
+                find_command_response.cursor.nextBatch = null;
             } else {
                 return null;
             }

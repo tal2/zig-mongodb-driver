@@ -214,6 +214,6 @@ pub const SaslCommandResponse = struct {
     }
 
     pub fn parseBson(allocator: Allocator, document: *const BsonDocument) !*SaslCommandResponse {
-        return try utils.parseBsonToOwned(SaslCommandResponse, allocator, document);
+        return try document.toObject(allocator, SaslCommandResponse, .{ .ignore_unknown_fields = true });
     }
 };

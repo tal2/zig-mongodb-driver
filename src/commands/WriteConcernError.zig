@@ -7,7 +7,7 @@ pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
 pub const WriteConcernError = struct {
     code: i32,
     errmsg: ?[]const u8 = null,
-    err_info: ?*BsonDocument = null,
+    errInfo: ?*BsonDocument = null,
 
     pub fn dupe(self: *const WriteConcernError, allocator: Allocator) !*WriteConcernError {
         const write_concern_error = try allocator.create(WriteConcernError);
@@ -18,7 +18,7 @@ pub const WriteConcernError = struct {
             try allocator.dupe(u8, errmsg)
         else
             null;
-        write_concern_error.err_info = if (self.err_info) |err_info|
+        write_concern_error.errInfo = if (self.errInfo) |err_info|
             try err_info.dupe(allocator)
         else
             null;
@@ -30,7 +30,7 @@ pub const WriteConcernError = struct {
         if (self.errmsg) |errmsg| {
             allocator.free(errmsg);
         }
-        if (self.err_info) |info| {
+        if (self.errInfo) |info| {
             info.deinit(allocator);
         }
         allocator.destroy(self);
@@ -88,11 +88,11 @@ pub const WriteConcernError = struct {
                 v
             else
                 null,
-            .err_info = err_info,
+            .errInfo = err_info,
         };
     }
 
     pub fn parseBson(allocator: Allocator, document: *BsonDocument) !*WriteConcernError {
-        return try utils.parseBsonToOwned(WriteConcernError, allocator, document);
+        return try document.toObject(allocator, WriteConcernError, .{ .ignore_unknown_fields = true });
     }
 };

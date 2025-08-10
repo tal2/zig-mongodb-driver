@@ -62,7 +62,7 @@ pub const CountCommand = struct {
 };
 
 pub const CountCommandResponse = struct {
-    count: i64,
+    n: i64,
     ok: f64,
 
     pub fn jsonParse(allocator: Allocator, source: *std.json.Scanner, options: std.json.ParseOptions) JsonParseError!CountCommandResponse {
@@ -70,7 +70,7 @@ pub const CountCommandResponse = struct {
         _ = options;
         if (try source.next() != .object_begin) return error.UnexpectedToken;
 
-        var count: ?i64 = null;
+        var n: ?i64 = null;
         var ok: ?f64 = null;
         blk_tkn: switch (try source.next()) {
             .string => |key| {
@@ -79,9 +79,9 @@ pub const CountCommandResponse = struct {
                     ok = std.fmt.parseFloat(f64, ok_value.number) catch return error.UnexpectedToken;
                     continue :blk_tkn try source.next();
                 }
-                if (count == null and std.mem.eql(u8, key, "n")) {
+                if (n == null and std.mem.eql(u8, key, "n")) {
                     const count_value = try source.next();
-                    count = std.fmt.parseInt(i64, count_value.number, 10) catch return error.UnexpectedToken;
+                    n = std.fmt.parseInt(i64, count_value.number, 10) catch return error.UnexpectedToken;
                 }
                 continue :blk_tkn try source.next();
             },
@@ -89,10 +89,10 @@ pub const CountCommandResponse = struct {
             else => return error.UnexpectedToken,
         }
 
-        if (count == null or ok == null) return error.UnexpectedToken;
+        if (n == null or ok == null) return error.UnexpectedToken;
 
         return .{
-            .count = count.?,
+            .n = n.?,
             .ok = ok.?,
         };
     }
@@ -101,13 +101,13 @@ pub const CountCommandResponse = struct {
         const clone = try allocator.create(CountCommandResponse);
         errdefer clone.deinit(allocator);
 
-        clone.count = self.count;
+        clone.n = self.n;
         clone.ok = self.ok;
 
         return clone;
     }
 
     pub fn parseBson(allocator: Allocator, document: *const BsonDocument) !*CountCommandResponse {
-        return try utils.parseBsonToOwned(CountCommandResponse, allocator, document);
+        return try document.toObject(allocator, CountCommandResponse, .{ .ignore_unknown_fields = true });
     }
 };

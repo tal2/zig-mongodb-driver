@@ -7,17 +7,17 @@ const BsonDocument = bson.BsonDocument;
 pub const CursorInfo = struct {
     id: i64,
     ns: []const u8,
-    first_batch: ?[]*BsonDocument,
-    next_batch: ?[]*BsonDocument,
+    firstBatch: ?[]*BsonDocument,
+    nextBatch: ?[]*BsonDocument,
 
     pub fn deinit(self: *const CursorInfo, allocator: Allocator) void {
-        if (self.first_batch) |first_batch| {
+        if (self.firstBatch) |first_batch| {
             for (first_batch) |doc| {
                 doc.deinit(allocator);
             }
             allocator.free(first_batch);
         }
-        if (self.next_batch) |next_batch| {
+        if (self.nextBatch) |next_batch| {
             for (next_batch) |doc| {
                 doc.deinit(allocator);
             }
@@ -80,8 +80,8 @@ pub const CursorInfo = struct {
         return .{
             .id = id.?,
             .ns = ns.?,
-            .first_batch = first_batch,
-            .next_batch = next_batch,
+            .firstBatch = first_batch,
+            .nextBatch = next_batch,
         };
     }
 
@@ -123,26 +123,26 @@ pub const CursorInfo = struct {
         cursor_info_clone.id = self.id;
         cursor_info_clone.ns = try allocator.dupe(u8, self.ns);
 
-        if (self.first_batch) |first_batch| {
-            cursor_info_clone.first_batch = try allocator.alloc(*BsonDocument, first_batch.len);
-            errdefer allocator.free(cursor_info_clone.first_batch.?);
+        if (self.firstBatch) |first_batch| {
+            cursor_info_clone.firstBatch = try allocator.alloc(*BsonDocument, first_batch.len);
+            errdefer allocator.free(cursor_info_clone.firstBatch.?);
 
             for (first_batch, 0..) |doc, i| {
-                cursor_info_clone.first_batch.?[i] = try doc.dupe(allocator);
+                cursor_info_clone.firstBatch.?[i] = try doc.dupe(allocator);
             }
         } else {
-            cursor_info_clone.first_batch = null;
+            cursor_info_clone.firstBatch = null;
         }
 
-        if (self.next_batch) |next_batch| {
-            cursor_info_clone.next_batch = try allocator.alloc(*BsonDocument, next_batch.len);
-            errdefer allocator.free(cursor_info_clone.next_batch.?);
+        if (self.nextBatch) |next_batch| {
+            cursor_info_clone.nextBatch = try allocator.alloc(*BsonDocument, next_batch.len);
+            errdefer allocator.free(cursor_info_clone.nextBatch.?);
 
             for (next_batch, 0..) |doc, i| {
-                cursor_info_clone.next_batch.?[i] = try doc.dupe(allocator);
+                cursor_info_clone.nextBatch.?[i] = try doc.dupe(allocator);
             }
         } else {
-            cursor_info_clone.next_batch = null;
+            cursor_info_clone.nextBatch = null;
         }
 
         return cursor_info_clone;

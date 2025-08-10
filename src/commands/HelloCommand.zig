@@ -11,7 +11,6 @@ const Allocator = std.mem.Allocator;
 const bson_types = bson.bson_types;
 const BsonDocument = bson.BsonDocument;
 const TopologyVersion = topology.TopologyVersion;
-const parseBsonDocument = utils.parseBsonDocument;
 
 pub fn makeHelloCommand(allocator: std.mem.Allocator, db_name: []const u8, server_api: ServerApi) !*opcode.OpMsg {
     var command_data: HelloCommand = .{
@@ -138,6 +137,6 @@ pub const HelloCommandResponse = struct {
     }
 
     pub fn parseBson(allocator: Allocator, document: *const BsonDocument) !*HelloCommandResponse {
-        return try utils.parseBsonToOwned(HelloCommandResponse, allocator, document);
+        return try document.toObject(allocator, HelloCommandResponse, .{ .ignore_unknown_fields = true });
     }
 };

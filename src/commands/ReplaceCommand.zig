@@ -193,7 +193,7 @@ pub const ReplaceCommandResponse = struct {
     }
 
     pub fn parseBson(allocator: Allocator, document: *const BsonDocument) !*ReplaceCommandResponse {
-        return try utils.parseBsonToOwned(ReplaceCommandResponse, allocator, document);
+        return try document.toObject(allocator, ReplaceCommandResponse, .{ .ignore_unknown_fields = true });
     }
 };
 

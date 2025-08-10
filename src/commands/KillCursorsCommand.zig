@@ -54,27 +54,27 @@ pub const KillCursorsCommand = struct {
 };
 
 pub const KillCursorsCommandResponse = struct {
-    cursors_killed: []const i64,
-    cursors_not_found: []const i64,
-    cursors_alive: []const i64,
-    cursors_unknown: []const i64,
+    cursorsKilled: []const i64,
+    cursorsNotFound: []const i64,
+    cursorsAlive: []const i64,
+    cursorsUnknown: []const i64,
     ok: f64,
 
     pub fn deinit(self: *const KillCursorsCommandResponse, allocator: Allocator) void {
-        allocator.free(self.cursors_killed);
-        allocator.free(self.cursors_not_found);
-        allocator.free(self.cursors_alive);
-        allocator.free(self.cursors_unknown);
+        allocator.free(self.cursorsKilled);
+        allocator.free(self.cursorsNotFound);
+        allocator.free(self.cursorsAlive);
+        allocator.free(self.cursorsUnknown);
         allocator.destroy(self);
     }
 
     pub fn dupe(self: *const KillCursorsCommandResponse, allocator: Allocator) !*KillCursorsCommandResponse {
         const clone = try allocator.create(KillCursorsCommandResponse);
         clone.* = .{
-            .cursors_killed = try allocator.dupe(i64, self.cursors_killed),
-            .cursors_not_found = try allocator.dupe(i64, self.cursors_not_found),
-            .cursors_alive = try allocator.dupe(i64, self.cursors_alive),
-            .cursors_unknown = try allocator.dupe(i64, self.cursors_unknown),
+            .cursorsKilled = try allocator.dupe(i64, self.cursorsKilled),
+            .cursorsNotFound = try allocator.dupe(i64, self.cursorsNotFound),
+            .cursorsAlive = try allocator.dupe(i64, self.cursorsAlive),
+            .cursorsUnknown = try allocator.dupe(i64, self.cursorsUnknown),
             .ok = self.ok,
         };
         return clone;
@@ -120,10 +120,10 @@ pub const KillCursorsCommandResponse = struct {
         if (cursors_killed == null or cursors_not_found == null or cursors_alive == null or cursors_unknown == null or ok == null) return error.UnexpectedToken;
 
         return .{
-            .cursors_killed = cursors_killed.?,
-            .cursors_not_found = cursors_not_found.?,
-            .cursors_alive = cursors_alive.?,
-            .cursors_unknown = cursors_unknown.?,
+            .cursorsKilled = cursors_killed.?,
+            .cursorsNotFound = cursors_not_found.?,
+            .cursorsAlive = cursors_alive.?,
+            .cursorsUnknown = cursors_unknown.?,
             .ok = ok.?,
         };
     }
@@ -148,6 +148,6 @@ pub const KillCursorsCommandResponse = struct {
     }
 
     pub fn parseBson(allocator: Allocator, document: *const BsonDocument) !*KillCursorsCommandResponse {
-        return try utils.parseBsonToOwned(KillCursorsCommandResponse, allocator, document);
+        return try document.toObject(allocator, KillCursorsCommandResponse, .{ .ignore_unknown_fields = true });
     }
 };

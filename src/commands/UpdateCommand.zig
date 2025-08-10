@@ -308,7 +308,7 @@ pub const UpdateCommandResponse = struct {
     }
 
     pub fn parseBson(allocator: Allocator, document: *const BsonDocument) !*UpdateCommandResponse {
-        return try utils.parseBsonToOwned(UpdateCommandResponse, allocator, document);
+        return try document.toObject(allocator, UpdateCommandResponse, .{ .ignore_unknown_fields = true });
     }
 };
 

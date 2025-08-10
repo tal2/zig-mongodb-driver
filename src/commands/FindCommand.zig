@@ -185,38 +185,22 @@ pub const FindCommandResponse = struct {
     }
 
     pub fn first(self: *const FindCommandResponse) ?*BsonDocument {
-        if (self.cursor.first_batch == null) return null;
-        if (self.cursor.first_batch.?.len == 0) return null;
-        const doc = self.cursor.first_batch.?[0];
+        if (self.cursor.firstBatch == null) return null;
+        if (self.cursor.firstBatch.?.len == 0) return null;
+        const doc = self.cursor.firstBatch.?[0];
         return doc;
     }
 
-    pub fn firstAs(self: *const FindCommandResponse, T: type, allocator: Allocator) !?T {
-        if (self.cursor.first_batch == null) return null;
-        if (self.cursor.first_batch.?.len == 0) return null;
-        const doc = self.cursor.first_batch.?[0];
-
-        const parsed = try utils.parseBsonDocument(T, allocator, doc, .{ .ignore_unknown_fields = false, .allocate = .alloc_always });
-        errdefer parsed.deinit();
-
-        const item = parsed.value;
-        return item;
+    pub fn firstAs(self: *const FindCommandResponse, T: type, allocator: Allocator) !?*T {
+        if (self.cursor.firstBatch == null) return null;
+        if (self.cursor.firstBatch.?.len == 0) return null;
+        const doc = self.cursor.firstBatch.?[0];
+        return try doc.toObject(allocator, T, .{ .ignore_unknown_fields = true });
     }
 
-    pub fn toArrayOf(self: *const FindCommandResponse, allocator: Allocator, T: type) ![]T {
-        var array = std.ArrayList(T).init(allocator);
-        errdefer array.deinit();
 
-        for (self.cursor.first_batch) |doc| {
-            const parsed = try utils.parseBsonDocument(T, allocator, doc, .{ .ignore_unknown_fields = false, .allocate = .alloc_always });
-            errdefer parsed.deinit();
 
-            const item = parsed.value;
-            try array.append(item);
-        }
 
-        return try array.toOwnedSlice();
-    }
 
     pub fn dupe(self: *const FindCommandResponse, allocator: Allocator) !*FindCommandResponse {
         const response = try allocator.create(FindCommandResponse);
@@ -230,7 +214,7 @@ pub const FindCommandResponse = struct {
     }
 
     pub fn parseBson(allocator: Allocator, document: *const BsonDocument) !*FindCommandResponse {
-        return try utils.parseBsonToOwned(FindCommandResponse, allocator, document);
+        return try document.toObject(allocator, FindCommandResponse, .{ .ignore_unknown_fields = true });
     }
 };
 
