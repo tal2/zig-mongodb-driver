@@ -53,13 +53,12 @@ pub fn makeFindCommand(
         // .awaitData = options.await_data,
         // .allowDiskUse = options.allow_disk_use,
         // .allowPartialResults = options.allow_partial_results,
-        .collation = options.collation,
         // .comment = options.comment,
         // .cursorType = options.cursor_type,
 
     };
+    options.addToCommand(&command_data);
     server_api.addToCommand(&command_data);
-    if (options.run_command_options) |run_command_options| run_command_options.addToCommand(&command_data);
 
     var command = try BsonDocument.fromObject(allocator, @TypeOf(command_data), command_data);
     errdefer command.deinit(allocator);
@@ -97,17 +96,17 @@ pub const FindCommand = struct {
 
     collation: ?bson.BsonDocument = null,
 
-    // comment: ?union(enum) { // TODO:
-    //     string: []const u8,
-    //     document: bson.BsonDocument,
-    // } = null,
+    comment: ?union(enum) { // TODO:
+        string: []const u8,
+        document: bson.BsonDocument,
+    } = null,
 
     // cursorType: ?types.CursorType = null,
 
-    // hint: ?union(enum) { // TODO:
-    //     string: []const u8,
-    //     document: bson.BsonDocument,
-    // } = null,
+    hint: ?union(enum) { // TODO:
+        string: []const u8,
+        document: bson.BsonDocument,
+    } = null,
 
     limit: ?i64 = null,
 
@@ -229,17 +228,16 @@ pub const FindOptions = struct {
 
     collation: ?bson.BsonDocument = null,
 
-    // comment: ?union(enum) { // TODO:
-    //     string: []const u8,
-    //     document: bson.BsonDocument,
-    // } = null,
-
+    comment: ?union(enum) { // TODO:
+        string: []const u8,
+        document: bson.BsonDocument,
+    } = null,
     // cursorType: ?types.CursorType = null,
 
-    // hint: ?union(enum) { // TODO:
-    //     string: []const u8,
-    //     document: bson.BsonDocument,
-    // } = null,
+    hint: ?union(enum) { // TODO:
+        string: []const u8,
+        document: bson.BsonDocument,
+    } = null,
 
     limit: ?i64 = null,
 
@@ -277,4 +275,44 @@ pub const FindOptions = struct {
 
     // /// @since MongoDB 8.2
     // rawData: ?bool = null,
+
+    fn addToCommand(self: *const FindOptions, command_data: *FindCommand) void {
+        if (self.run_command_options) |run_command_options| run_command_options.addToCommand(command_data);
+
+        if (self.allowDiskUse) |allowDiskUse| command_data.allowDiskUse = allowDiskUse;
+        if (self.allowPartialResults) |allowPartialResults| command_data.allowPartialResults = allowPartialResults;
+        if (self.returnKey) |returnKey| command_data.returnKey = returnKey;
+        if (self.showRecordId) |showRecordId| command_data.showRecordId = showRecordId;
+        if (self.snapshot) |snapshot| command_data.snapshot = snapshot;
+        if (self.maxTimeMS) |maxTimeMS| command_data.maxTimeMS = maxTimeMS;
+        if (self.oplogReplay) |oplogReplay| command_data.oplogReplay = oplogReplay;
+        if (self.projection) |projection| command_data.projection = projection;
+        if (self.sort) |sort| command_data.sort = sort;
+        if (self.let) |let| command_data.let = let;
+        if (self.maxScan) |maxScan| command_data.maxScan = maxScan;
+        if (self.maxAwaitTimeMS) |maxAwaitTimeMS| command_data.maxAwaitTimeMS = maxAwaitTimeMS;
+        if (self.min) |min| command_data.min = min;
+        if (self.collation) |collation| command_data.collation = collation;
+
+        if (self.hint) |hint| {
+            switch (hint) {
+                .document => |document| {
+                    command_data.hint = .{ .document = document };
+                },
+                .string => |string| {
+                    command_data.hint = .{ .string = string };
+                },
+            }
+        }
+        if (self.comment) |comment| {
+            switch (comment) {
+                .document => |document| {
+                    command_data.comment = .{ .document = document };
+                },
+                .string => |string| {
+                    command_data.comment = .{ .string = string };
+                },
+            }
+        }
+    }
 };
