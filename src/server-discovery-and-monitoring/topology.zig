@@ -24,6 +24,7 @@ pub const TopologyDescription = struct {
             allocator.destroy(entry.value_ptr);
         }
         self.servers.deinit();
+        allocator.destroy(self);
     }
 };
 

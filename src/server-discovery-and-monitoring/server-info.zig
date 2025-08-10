@@ -24,7 +24,7 @@ pub const ServerType = enum {
 };
 
 pub const ServerDescription = struct {
-    address: Address, // the address of the server. (not the same as field 'me')
+    address: *Address, // the address of the server. (not the same as field 'me')
     @".error": ?[]const u8 = null, // information about the last error related to this server. Default null. MUST contain or be able to produce a string describing the error.
     round_trip_time: ?u64 = null, // the round trip time to the server. Default null.
     min_round_trip_time: ?u64 = null, // the minimum round trip time to the server. Default null.
@@ -60,32 +60,13 @@ pub const ServerDescription = struct {
         allocator.destroy(self);
     }
 
-    pub fn mergeCloneWithHelloResponse(self: *ServerDescription, allocator: std.mem.Allocator, hello_response: *const HelloCommandResponse, lastUpdateTime: i64, roundTripTime: u64) !*ServerDescription {
-        const new_server_description = try allocator.create(ServerDescription);
-        new_server_description.address = self.address;
-        new_server_description.hosts = self.hosts;
-        new_server_description.passives = self.passives;
-        new_server_description.arbiters = self.arbiters;
-        new_server_description.tags = self.tags;
-        new_server_description.setName = self.setName;
-        new_server_description.electionId = self.electionId;
-        new_server_description.setVersion = self.setVersion;
-        new_server_description.primary = self.primary;
-        new_server_description.logical_session_timeout_minutes = self.logical_session_timeout_minutes;
-        new_server_description.topology_version = self.topology_version;
-        new_server_description.iscryptd = self.iscryptd;
-
-        new_server_description.min_wire_version = hello_response.minWireVersion;
-        new_server_description.max_wire_version = hello_response.maxWireVersion;
-        // self.minRoundTripTime = roundTripTime;
-
-        new_server_description.last_update_time = lastUpdateTime;
-        // new_server_description.lastWriteDate = lastWriteDate;
-
-        // self.opTime = hello_response.opTime;
-        new_server_description.round_trip_time = roundTripTime;
-
-        return new_server_description;
+    pub fn updateWithHelloResponse(self: *ServerDescription, hello_response: *const HelloCommandResponse, lastUpdateTime: i64, roundTripTime: u64) !void {
+        self.min_wire_version = hello_response.minWireVersion;
+        self.max_wire_version = hello_response.maxWireVersion;
+        self.last_update_time = lastUpdateTime;
+        self.round_trip_time = roundTripTime;
+        self.topology_version = hello_response.topologyVersion;
+        self.logical_session_timeout_minutes = hello_response.logicalSessionTimeoutMinutes;
     }
 
     pub fn isStale(self: *ServerDescription, b: *const ServerDescription) bool {
@@ -125,9 +106,9 @@ pub const ServerDescription = struct {
         if (self.primary != null and b.primary == null) return false;
         if (self.primary != null and b.primary != null and !self.primary.?.isEqualTo(b.primary)) return false;
 
-        if (self.logicalSessionTimeoutMinutes == null and b.logicalSessionTimeoutMinutes != null) return false;
-        if (self.logicalSessionTimeoutMinutes != null and b.logicalSessionTimeoutMinutes == null) return false;
-        if (self.logicalSessionTimeoutMinutes != null and b.logicalSessionTimeoutMinutes != null and self.logicalSessionTimeoutMinutes.? != b.logicalSessionTimeoutMinutes.?) return false;
+        // if (self.logicalSessionTimeoutMinutes == null and b.logicalSessionTimeoutMinutes != null) return false;
+        // if (self.logicalSessionTimeoutMinutes != null and b.logicalSessionTimeoutMinutes == null) return false;
+        // if (self.logicalSessionTimeoutMinutes != null and b.logicalSessionTimeoutMinutes != null and self.logicalSessionTimeoutMinutes.? != b.logicalSessionTimeoutMinutes.?) return false;
 
         if (self.setVersion == null and b.setVersion != null) return false;
         if (self.setVersion != null and b.setVersion == null) return false;

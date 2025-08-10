@@ -10,4 +10,24 @@ pub const ClientConfig = struct {
     replica_set: ?[]const u8 = null,
     load_balanced: bool = false,
     seeds: std.ArrayList(Address),
+
+    pub fn init(allocator: std.mem.Allocator, seeds: *const std.ArrayList(Address)) !ClientConfig {
+        var seeds_copy = try std.ArrayList(Address).initCapacity(allocator, seeds.capacity);
+        for (seeds.items) |seed| {
+            seeds_copy.appendAssumeCapacity(try seed.clone(allocator));
+        }
+
+        return .{
+            .client_min_wire_version = 0,
+            .client_max_wire_version = 0,
+            .seeds = seeds_copy,
+        };
+    }
+
+    pub fn deinit(self: *ClientConfig, allocator: std.mem.Allocator) void {
+        for (self.seeds.items) |seed| {
+            seed.deinit(allocator);
+        }
+        self.seeds.deinit();
+    }
 };

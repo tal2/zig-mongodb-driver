@@ -13,6 +13,14 @@ pub const Address = struct {
         };
     }
 
+    pub fn deinit(self: *const Address, allocator: std.mem.Allocator) void {
+        allocator.free(self.hostname);
+    }
+
+    pub fn clone(self: *const Address, allocator: std.mem.Allocator) !Address {
+        return Address.init(try allocator.dupe(u8, self.hostname), self.port);
+    }
+
     pub fn parse(host_and_port: []const u8) !Address {
         const colon_pos = std.mem.indexOfScalar(u8, host_and_port, ':');
 

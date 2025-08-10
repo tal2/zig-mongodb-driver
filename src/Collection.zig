@@ -2,6 +2,7 @@ const std = @import("std");
 const bson = @import("bson");
 const Database = @import("Database.zig").Database;
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 
 const command_options = @import("commands/RunCommandOptions.zig");
 const connection_stream = @import("connection/ConnectionStream.zig");
@@ -66,11 +67,12 @@ pub const Collection = struct {
                 @compileError("insertMany docs param must be an array or a pointer to an array");
             }
         }
-        const command_insert = try insert_commands.makeInsertMany(self.allocator, self.collection_name, docs, options, null, self.database.db_name, self.server_api);
 
+        const command_insert = try insert_commands.makeInsertMany(self.allocator, self.collection_name, docs, options, null, self.database.db_name, self.server_api);
         defer command_insert.deinit(self.allocator);
 
         const response = try self.database.stream.send(self.allocator, command_insert);
+        defer response.deinit(self.allocator);
         return try InsertCommandResponse.parseBson(self.allocator, response.section_document.document);
     }
 
@@ -86,6 +88,7 @@ pub const Collection = struct {
         defer command_insert.deinit(self.allocator);
 
         const response = try self.database.stream.send(self.allocator, command_insert);
+        defer response.deinit(self.allocator);
         return try InsertCommandResponse.parseBson(self.allocator, response.section_document.document);
     }
 
@@ -122,6 +125,7 @@ pub const Collection = struct {
         defer command_delete.deinit(self.allocator);
 
         const response = try self.database.stream.send(self.allocator, command_delete);
+        defer response.deinit(self.allocator);
         return try DeleteCommandResponse.parseBson(self.allocator, response.section_document.document);
     }
 
@@ -171,26 +175,23 @@ pub const Collection = struct {
     }
 
     pub fn countDocuments(self: *const Collection, filter: anytype, options: FindOptions) !i64 {
-        var pb = commands.PipelineBuilder.init(self.allocator);
-        defer pb.deinit();
+        var arena = ArenaAllocator.init(self.allocator);
+        defer arena.deinit();
+        const arena_allocator = arena.allocator();
+
+        var pb = commands.PipelineBuilder.init(arena_allocator);
         const pipeline = try pb.match(filter).group(.{ ._id = 1, .n = .{ .@"$sum" = 1 } }).build();
-        defer self.allocator.free(pipeline);
 
-        const command = try commands.makeAggregateCommand(self.allocator, self.collection_name, pipeline, options, .{}, null, self.database.db_name, self.server_api);
-        defer command.deinit(self.allocator);
-
-        const response = try self.database.stream.send(self.allocator, command);
-        defer response.deinit(self.allocator);
-
-        const aggregate_command_response = try FindCommandResponse.parseBson(self.allocator, response.section_document.document);
-        defer aggregate_command_response.deinit(self.allocator);
+        const command = try commands.makeAggregateCommand(arena_allocator, self.collection_name, pipeline, options, .{}, null, self.database.db_name, self.server_api);
+        const response = try self.database.stream.send(arena_allocator, command);
+        const aggregate_command_response = try FindCommandResponse.parseBson(arena_allocator, response.section_document.document);
 
         const SumResponse = struct {
             _id: ?i64,
             n: i64,
         };
 
-        const sum_response = try aggregate_command_response.firstAs(SumResponse, self.allocator) orelse return 0;
+        const sum_response = try aggregate_command_response.firstAs(SumResponse, arena_allocator) orelse return 0;
         return sum_response.n;
     }
 
@@ -245,8 +246,6 @@ pub const Collection = struct {
         var command_serialized = try BsonDocument.fromObject(self.allocator, @TypeOf(command), command);
         errdefer command_serialized.deinit(self.allocator);
 
-        const command_json = try command_serialized.toJsonString(self.allocator, true);
-        defer self.allocator.free(command_json);
 
         const command_op_msg = try opcode.OpMsg.init(self.allocator, command_serialized, 1, 0, .{});
         defer command_op_msg.deinit(self.allocator);

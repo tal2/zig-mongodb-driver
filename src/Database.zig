@@ -37,7 +37,7 @@ pub const Database = struct {
     server_api: ServerApi,
     client_config: ClientConfig,
 
-    pub fn init(allocator: Allocator, conn_str: *const ConnectionString, server_api: ServerApi) !Database {
+    pub fn init(allocator: Allocator, conn_str: *ConnectionString, server_api: ServerApi) !Database {
         bson.bson_types.BsonObjectId.initializeGenerator();
 
         const stream = try ConnectionStream.fromConnectionString(conn_str);
@@ -52,21 +52,18 @@ pub const Database = struct {
 
         return .{
             .allocator = allocator,
-            .db_name = conn_str.auth_database,
+            .db_name = if (conn_str.auth_database) |auth_database| try allocator.dupe(u8, auth_database) else "admin",
             .stream = stream,
             .topology_description = topology_description,
             .monitoring_threads = std.ArrayList(*MonitoringThreadContext).init(allocator),
             .pool = pool,
             .server_api = server_api,
-            .client_config = .{
-                .client_min_wire_version = 0, // TODO:
-                .client_max_wire_version = 0, // TODO:
-                .seeds = conn_str.hosts,
-            },
+            .client_config = try ClientConfig.init(allocator, &conn_str.hosts),
         };
     }
 
     pub fn deinit(self: *Database) void {
+        self.allocator.free(self.db_name);
         self.stream.deinit();
         self.topology_description.deinit(self.allocator);
         for (self.monitoring_threads.items) |thread_context| {
@@ -77,6 +74,7 @@ pub const Database = struct {
         self.pool.deinit();
         self.allocator.destroy(self.pool);
         self.monitoring_threads.deinit();
+        self.client_config.deinit(self.allocator);
         // self.allocator.destroy(self);
     }
 
@@ -89,9 +87,9 @@ pub const Database = struct {
 
         var current_server_description = try self.allocator.create(ServerDescription);
         defer current_server_description.deinit(self.allocator);
-        current_server_description.address = self.client_config.seeds.items[0];
+        current_server_description.address = &self.client_config.seeds.items[0];
 
-        _ = try self.handshake(current_server_description, &self.stream, credentials);
+        try self.handshake(current_server_description, &self.stream, credentials);
 
         for (self.client_config.seeds.items) |seed| {
             var thread_context = try self.allocator.create(MonitoringThreadContext);
@@ -145,18 +143,14 @@ pub const Database = struct {
 
         var current_server_description = try allocator.create(ServerDescription);
         defer current_server_description.deinit(allocator);
-        current_server_description.address = context.server_address;
+        current_server_description.address = &context.server_address;
 
         const stream_address = try net.Address.resolveIp(context.server_address.hostname, context.server_address.port);
         var stream = ConnectionStream.init(stream_address);
         defer stream.deinit();
         try stream.connect();
 
-        const server_description_updated = try database.handshake(current_server_description, &stream, null);
-
-        var server_description_temp = current_server_description;
-        current_server_description = server_description_updated;
-        server_description_temp.deinit(allocator);
+        try database.handshake(current_server_description, &stream, null);
 
         //TODO: replace topology description pointer instead of mutating it
         // database.topology_description.servers.put(context.server_address, current_server_description.*) catch @panic("failed to put server description");
@@ -187,13 +181,11 @@ pub const Database = struct {
             defer allocator.destroy(hello_response);
 
             const now = time.milliTimestamp();
-            var previous_server_description = current_server_description;
-            current_server_description = try database.handleHelloResponse(previous_server_description, hello_response, now, round_trip_time);
-            previous_server_description.deinit(allocator);
+            try database.handleHelloResponse(current_server_description, hello_response, now, round_trip_time);
         }
     }
 
-    fn handshake(self: *Database, current_server_description: *ServerDescription, conn_stream: *ConnectionStream, credentials: ?MongoCredential) !*ServerDescription {
+    fn handshake(self: *Database, current_server_description: *ServerDescription, conn_stream: *ConnectionStream, credentials: ?MongoCredential) !void {
         const allocator = self.allocator;
 
         // const options: RunCommandOptions = .{
@@ -210,7 +202,7 @@ pub const Database = struct {
             @panic("error parsing hello response");
             // return current_server_description;
         };
-        defer allocator.destroy(hello_response);
+        defer hello_response.deinit(allocator);
         defer result.deinit(allocator);
 
         if (credentials) |creds| {
@@ -222,7 +214,7 @@ pub const Database = struct {
         const end_time = time.milliTimestamp();
         const round_trip_time: u64 = @intCast(end_time - start_time);
 
-        return try self.handleHelloResponse(current_server_description, hello_response, now, round_trip_time);
+        try self.handleHelloResponse(current_server_description, hello_response, now, round_trip_time);
     }
 
     fn authConversation(self: *Database, allocator: Allocator, conn_stream: *ConnectionStream, creds: MongoCredential) !void {
@@ -275,22 +267,25 @@ pub const Database = struct {
         }
     }
 
-    fn handleHelloResponse(self: *Database, current_server_description: *ServerDescription, hello_response: *commands.HelloCommandResponse, last_update_time: i64, round_trip_time: u64) !*ServerDescription {
-        const allocator = self.allocator;
+    fn handleHelloResponse(
+        self: *Database,
+        current_server_description: *ServerDescription,
+        hello_response: *commands.HelloCommandResponse,
+        last_update_time: i64,
+        round_trip_time: u64,
+    ) !void {
 
-        var new_server_description = try current_server_description.mergeCloneWithHelloResponse(allocator, hello_response, last_update_time, round_trip_time);
-        errdefer new_server_description.deinit(allocator);
 
         self.topology_description.logical_session_timeout_minutes = hello_response.logicalSessionTimeoutMinutes;
 
-        var server_description_updated: *ServerDescription = undefined;
 
         switch (self.topology_description.type) {
             .Single => {
-                // replace server description regardless of equality
-                server_description_updated = new_server_description;
+                try current_server_description.updateWithHelloResponse(hello_response, last_update_time, round_trip_time);
 
-                self.topology_description.compatible = new_server_description.checkCompatibility(&self.client_config) catch |err| blk: {
+                // replace server description regardless of equality
+
+                self.topology_description.compatible = current_server_description.checkCompatibility(&self.client_config) catch |err| blk: {
                     switch (err) {
                         error.IncompatibleWireVersionAboveMax => {
                             //TODO: add missing values
@@ -313,14 +308,10 @@ pub const Database = struct {
             },
 
             else => {
-                if (current_server_description.isStale(new_server_description)) {
-                    server_description_updated = new_server_description;
-                }
 
                 @panic("not implemented");
             },
         }
 
-        return server_description_updated;
     }
 };
