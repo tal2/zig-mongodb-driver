@@ -38,7 +38,6 @@ const CursorIterator = commands.CursorIterator;
 const AggregateOptions = commands.AggregateOptions;
 const CursorOptions = commands.CursorOptions;
 const AggregateCommandResponse = commands.AggregateCommandResponse;
-const parseBsonDocument = utils.parseBsonDocument;
 
 pub const Collection = struct {
     database: *Database,
@@ -203,7 +202,7 @@ pub const Collection = struct {
 
         const count_response = try commands.CountCommandResponse.parseBson(self.allocator, response.section_document.document);
         defer self.allocator.destroy(count_response);
-        return count_response.count;
+        return count_response.n;
     }
 
     pub fn killCursors(self: *const Collection, cursor_ids: []const i64) !*commands.KillCursorsCommandResponse {
