@@ -131,6 +131,7 @@ pub const ReplaceCommandResponse = struct {
         if (self.upserted) |upserted| {
             upserted.deinit(allocator);
         }
+        allocator.destroy(self);
     }
 
     pub fn jsonParse(allocator: Allocator, source: *std.json.Scanner, options: std.json.ParseOptions) JsonParseError!ReplaceCommandResponse {

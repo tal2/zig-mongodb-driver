@@ -100,10 +100,11 @@ pub const Collection = struct {
         defer command.deinit(self.allocator);
 
         const response = try self.database.stream.send(self.database.allocator, command);
+        defer response.deinit(self.allocator);
         const find_command_response = try FindCommandResponse.parseBson(self.database.allocator, response.section_document.document);
         defer find_command_response.deinit(self.allocator);
 
-        const cursor = try CursorIterator.init(self.allocator, self, find_command_response, options);
+        const cursor = try CursorIterator.init(self.allocator, self, find_command_response.cursor, options);
         return cursor;
     }
 
@@ -115,6 +116,7 @@ pub const Collection = struct {
 
         const response = try self.database.stream.send(self.database.allocator, command);
         const result = try FindCommandResponse.parseBson(self.database.allocator, response.section_document.document);
+        defer response.deinit(self.allocator);
 
         return result.first();
     }
@@ -135,7 +137,8 @@ pub const Collection = struct {
         defer command_replace.deinit(self.allocator);
 
         const response = try self.database.stream.send(self.allocator, command_replace);
-        return try ReplaceCommandResponse.parseBson(self.allocator, response.section_document.document);
+        defer response.deinit(self.allocator);
+        return try response.section_document.document.toObject(self.allocator, ReplaceCommandResponse, .{ .ignore_unknown_fields = true });
     }
 
     pub fn updateOne(self: *const Collection, filter: anytype, update: anytype, options: UpdateOptions) !*UpdateCommandResponse {
@@ -144,7 +147,8 @@ pub const Collection = struct {
         defer command_update.deinit(self.allocator);
 
         const response = try self.database.stream.send(self.allocator, command_update);
-        return try UpdateCommandResponse.parseBson(self.allocator, response.section_document.document);
+        defer response.deinit(self.allocator);
+        return try response.section_document.document.toObject(self.allocator, UpdateCommandResponse, .{ .ignore_unknown_fields = true });
     }
 
     pub fn updateMany(self: *const Collection, filter: anytype, update: anytype, options: UpdateOptions) !*UpdateCommandResponse {
@@ -153,7 +157,8 @@ pub const Collection = struct {
         defer command_update.deinit(self.allocator);
 
         const response = try self.database.stream.send(self.allocator, command_update);
-        return try UpdateCommandResponse.parseBson(self.allocator, response.section_document.document);
+        defer response.deinit(self.allocator);
+        return try response.section_document.document.toObject(self.allocator, UpdateCommandResponse, .{ .ignore_unknown_fields = true });
     }
 
     pub fn updateChain(self: *const Collection) UpdateCommandChainable {
@@ -170,7 +175,7 @@ pub const Collection = struct {
         const aggregate_command_response = try FindCommandResponse.parseBson(self.allocator, response.section_document.document);
         defer aggregate_command_response.deinit(self.allocator);
 
-        const cursor = try CursorIterator.init(self.allocator, self, aggregate_command_response, options);
+        const cursor = try CursorIterator.init(self.allocator, self, aggregate_command_response.cursor, options);
         return cursor;
     }
 

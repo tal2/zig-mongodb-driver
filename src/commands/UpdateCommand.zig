@@ -67,19 +67,17 @@ pub const UpdateStatementBuilder = struct {
         var update_parsed = try BsonDocument.fromObject(self.allocator, @TypeOf(update), update);
         errdefer update_parsed.deinit(self.allocator);
 
-        const update_statement = try self.allocator.create(UpdateStatement);
-        errdefer self.allocator.destroy(update_statement);
 
-        update_statement.* = UpdateStatement{
-            .q = filter_parsed.*,
-            .u = update_parsed.*, // TODO: add support for pipelines
+        const update_statement = UpdateStatement{
+            .q = filter_parsed,
+            .u = update_parsed, // TODO: add support for pipelines
             .multi = options.multi,
             .collation = options.collation,
             .upsert = options.upsert,
             .arrayFilters = options.array_filters,
         };
 
-        try self.update_statements.append(update_statement.*);
+        try self.update_statements.append(update_statement);
     }
 
     pub fn build(self: *UpdateStatementBuilder) UpdateStatement {
@@ -104,8 +102,8 @@ pub fn makeUpdateOneCommand(
     defer update_parsed.deinit(allocator);
 
     const update_statement = UpdateStatement{
-        .q = filter_parsed.*,
-        .u = update_parsed.*,
+        .q = filter_parsed,
+        .u = update_parsed,
         .multi = false, // updateOne only updates one document
         .upsert = options.upsert,
         .arrayFilters = options.array_filters,
@@ -133,8 +131,8 @@ pub fn makeUpdateManyCommand(
     defer update_parsed.deinit(allocator);
 
     const update_statement = UpdateStatement{
-        .q = filter_parsed.*,
-        .u = update_parsed.*,
+        .q = filter_parsed,
+        .u = update_parsed,
         .multi = true,
         .upsert = options.upsert,
         .arrayFilters = options.array_filters,
@@ -199,10 +197,10 @@ pub const UpdateStatement = struct {
     }
 
     /// The query that matches documents to update.
-    q: BsonDocument,
+    q: *BsonDocument,
 
     /// The update document or pipeline that specifies the modifications to apply.
-    u: BsonDocument, // TODO: add support for pipelines
+    u: *BsonDocument, // TODO: add support for pipelines
 
     /// since mongodb v5.0
     // @see https://www.mongodb.com/docs/v7.0/reference/command/update/#std-label-update-command-c
@@ -244,6 +242,7 @@ pub const UpdateCommandResponse = struct {
         if (self.upserted) |upserted| {
             upserted.deinit(allocator);
         }
+        allocator.destroy(self);
     }
 
     pub fn jsonParse(allocator: Allocator, source: *std.json.Scanner, options: std.json.ParseOptions) JsonParseError!UpdateCommandResponse {
@@ -371,7 +370,13 @@ pub const UpdateCommandChainable = struct {
         }
 
         const update_statements = try self.builder.toOwnedSlice();
-        defer self.builder.deinit();
+        defer {
+            for (update_statements) |update| {
+                update.deinit(self.collection.allocator);
+            }
+            self.collection.allocator.free(update_statements);
+            self.builder.deinit();
+        }
 
         var command: UpdateCommand = .{
             .update = self.collection.collection_name,

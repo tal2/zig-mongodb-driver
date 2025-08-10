@@ -48,6 +48,12 @@ const HelloCommand = struct {
 
     readPreference: ?[]const u8 = null,
     timeoutMS: ?i64 = null,
+
+    pub fn deinit(self: *const HelloCommand, allocator: std.mem.Allocator) void {
+        if (self.saslSupportedMechs) |sasl_supported_mechs| {
+            allocator.free(sasl_supported_mechs);
+        }
+    }
 };
 
 pub fn makeHelloCommandForHandshake( //
@@ -86,6 +92,7 @@ pub fn makeHelloCommandForHandshake( //
 
         // .saslSupportedMechs = [0][]u8{},
     };
+    defer command_data.deinit(allocator);
 
     if (credentials) |creds| {
         switch (creds.mechanism) {
@@ -129,6 +136,13 @@ pub const HelloCommandResponse = struct {
     ok: f64,
 
     saslSupportedMechs: ?[]const []const u8 = null,
+
+    pub fn deinit(self: *const HelloCommandResponse, allocator: Allocator) void {
+        if (self.saslSupportedMechs) |sasl_supported_mechs| {
+            allocator.free(sasl_supported_mechs);
+        }
+        allocator.destroy(self);
+    }
 
     pub fn dupe(self: *const HelloCommandResponse, allocator: Allocator) !*HelloCommandResponse {
         const clone = try allocator.create(HelloCommandResponse);

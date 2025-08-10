@@ -4,6 +4,7 @@ const Collection = @import("../Collection.zig").Collection;
 const FindCommandResponse = @import("./FindCommand.zig").FindCommandResponse;
 const FindOptions = @import("./FindCommand.zig").FindOptions;
 const commands = @import("./root.zig");
+const CursorInfo = @import("./CursorInfo.zig").CursorInfo;
 
 const Allocator = std.mem.Allocator;
 const BsonDocument = bson.BsonDocument;
@@ -19,18 +20,25 @@ pub const CursorIterator = struct {
 
     count: usize = 0,
 
-    pub fn init(allocator: std.mem.Allocator, collection: *const Collection, find_command_response: *const FindCommandResponse, options: FindOptions) !CursorIterator {
-        const first_batch_size = find_command_response.cursor.firstBatch.?.len;
+    pub fn init(allocator: std.mem.Allocator, collection: *const Collection, cursor: *CursorInfo, options: FindOptions) !CursorIterator {
+        const first_batch_size = cursor.firstBatch.?.len;
         var buffer = try std.ArrayList(*BsonDocument).initCapacity(allocator, first_batch_size);
         errdefer buffer.deinit();
 
-        try buffer.appendSlice(find_command_response.cursor.firstBatch.?);
-        find_command_response.cursor.firstBatch = null;
+        if (cursor.firstBatch) |first_batch| {
+            for (first_batch) |doc| {
+                defer doc.deinit(allocator);
+                const dupe_doc = try doc.dupe(allocator);
+                try buffer.append(dupe_doc);
+            }
+            allocator.free(cursor.firstBatch.?);
+            cursor.firstBatch = null;
+        }
 
         return .{
             .allocator = allocator,
             .collection = collection,
-            .cursor_id = find_command_response.cursor.id,
+            .cursor_id = cursor.id,
             .buffer = buffer,
             .batch_size = options.batchSize,
             // .limit = options.limit,
@@ -47,6 +55,9 @@ pub const CursorIterator = struct {
     }
 
     pub fn deinit(self: *const CursorIterator) void {
+        for (self.buffer.items) |item| {
+            item.deinit(self.allocator);
+        }
         self.buffer.deinit();
         // self.allocator.destroy(self);
     }
@@ -74,8 +85,9 @@ pub const CursorIterator = struct {
             self.cursor_id = find_command_response.cursor.id;
 
             if (find_command_response.cursor.nextBatch) |next_batch| {
-                try self.buffer.appendSlice(next_batch);
                 find_command_response.cursor.nextBatch = null;
+                self.count += next_batch.len;
+                return next_batch;
             } else {
                 return null;
             }
