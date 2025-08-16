@@ -57,6 +57,7 @@ pub fn makeFindCommand(
         // .cursorType = options.cursor_type,
 
     };
+    defer command_data.deinit(allocator);
     options.addToCommand(&command_data);
     server_api.addToCommand(&command_data);
 
@@ -154,6 +155,24 @@ pub const FindCommand = struct {
     readPreference: ?[]const u8 = null,
     timeoutMS: ?i64 = null,
     // session: ?ClientSession = null,
+
+    pub fn deinit(self: *const FindCommand, allocator: Allocator) void {
+        self.filter.deinit(allocator);
+        if (self.collation) |collation| {
+            collation.deinit(allocator);
+        }
+        if (self.hint) |hint| {
+            if (hint == .document) {
+                hint.document.deinit(allocator);
+            }
+        }
+        if (self.max) |max| {
+            max.deinit(allocator);
+        }
+        if (self.min) |min| {
+            min.deinit(allocator);
+        }
+    }
 };
 
 fn calculateFirstNumberToReturn(limit: ?i64, batch_size: ?i32) i32 {

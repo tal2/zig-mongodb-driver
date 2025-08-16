@@ -117,7 +117,7 @@ pub const OpMsg = struct {
     section_sequence: ?SequenceSection = null,
     checksum: ?u32 = null,
 
-    pub fn init(allocator: Allocator, command: *BsonDocument, request_id: i32, response_to: i32, flags: OpMsg.OpMsgFlags) Allocator.Error!*OpMsg {
+    pub fn init(allocator: Allocator, command: *const BsonDocument, request_id: i32, response_to: i32, flags: OpMsg.OpMsgFlags) Allocator.Error!*OpMsg {
         var message = try allocator.create(OpMsg);
         message.* = OpMsg{
             .header = MsgHeader{
@@ -321,7 +321,7 @@ pub const MsgHeader = struct {
 
 const DocumentSection = struct {
     const payload_type = 0;
-    document: *BsonDocument,
+    document: *const BsonDocument,
 };
 
 const SequenceSection = struct {

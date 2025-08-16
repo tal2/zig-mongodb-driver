@@ -43,6 +43,7 @@ pub fn makeFindOneCommand(
         // .hint = options.hint,
 
     };
+    defer command_data.deinit(allocator);
     server_api.addToCommand(&command_data);
     if (options.run_command_options) |run_command_options| run_command_options.addToCommand(&command_data);
 
@@ -102,4 +103,23 @@ pub const FindOneOptions = struct {
 
     // /// @since MongoDB 8.2
     // rawData: ?bool = null,
+
+    fn addToCommand(self: *const FindOneOptions, command_data: *FindCommand) void {
+        if (self.run_command_options) |run_command_options| run_command_options.addToCommand(command_data);
+
+        if (self.allowDiskUse) |allowDiskUse| command_data.allowDiskUse = allowDiskUse;
+        if (self.allowPartialResults) |allowPartialResults| command_data.allowPartialResults = allowPartialResults;
+        if (self.returnKey) |returnKey| command_data.returnKey = returnKey;
+        if (self.showRecordId) |showRecordId| command_data.showRecordId = showRecordId;
+        if (self.snapshot) |snapshot| command_data.snapshot = snapshot;
+        if (self.maxTimeMS) |maxTimeMS| command_data.maxTimeMS = maxTimeMS;
+        if (self.oplogReplay) |oplogReplay| command_data.oplogReplay = oplogReplay;
+        if (self.projection) |projection| command_data.projection = projection;
+        if (self.sort) |sort| command_data.sort = sort;
+        if (self.let) |let| command_data.let = let;
+        if (self.maxScan) |maxScan| command_data.maxScan = maxScan;
+        if (self.maxAwaitTimeMS) |maxAwaitTimeMS| command_data.maxAwaitTimeMS = maxAwaitTimeMS;
+        if (self.min) |min| command_data.min = min;
+        if (self.collation) |collation| command_data.collation = collation;
+    }
 };
