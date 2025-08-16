@@ -67,6 +67,8 @@ pub const CursorOptions = aggregate_commands.CursorOptions;
 pub const AggregateCommandResponse = aggregate_commands.AggregateCommandResponse;
 pub const PipelineBuilder = @import("../aggregation/pipeline.zig").PipelineBuilder;
 
+pub const ErrorResponse = @import("./ErrorResponse.zig").ErrorResponse;
+
 test {
     _ = @import("./types.zig");
     _ = @import("./InsertCommand.zig");
