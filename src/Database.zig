@@ -13,6 +13,7 @@ const ConnectionString = @import("connection/ConnectionString.zig").ConnectionSt
 const Collection = @import("Collection.zig").Collection;
 const RunCommandOptions = commands.RunCommandOptions.RunCommandOptions;
 const HelloCommandResponse = commands.HelloCommand.HelloCommandResponse;
+const ErrorResponse = commands.ErrorResponse;
 
 const server_discovery_and_monitoring = @import("server-discovery-and-monitoring/root.zig");
 const MonitoringThreadContext = server_discovery_and_monitoring.MonitoringThreadContext;
@@ -241,11 +242,11 @@ pub const Database = struct {
         while (!is_done) {
             const response = try conn_stream.send(arena_allocator, sasl_command);
 
-            const sasl_response = try SaslCommandResponse.parseBson(arena_allocator, response.section_document.document);
-
-            if (sasl_response.ok != 1) {
+            if (try ErrorResponse.isError(allocator, response.section_document.document)) {
                 return error.AuthenticationFailed;
             }
+
+            const sasl_response = try SaslCommandResponse.parseBson(arena_allocator, response.section_document.document);
 
             const response_payload = sasl_response.payload.?;
             const response_payload_decoded = try utils.base64Decode(arena_allocator, response_payload);

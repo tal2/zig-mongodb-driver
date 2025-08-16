@@ -99,24 +99,8 @@ pub const SaslCommandResponse = struct {
 
     done: bool,
 
-    errmsg: ?[]const u8 = null,
-    codeName: ?[]const u8 = null,
-    code: ?i32 = null,
-
     pub fn deinit(self: *SaslCommandResponse, allocator: Allocator) void {
         if (self.payload) |value| {
-            allocator.free(value);
-        }
-        if (self.errmsg) |value| {
-            allocator.free(value);
-        }
-        if (self.codeName) |value| {
-            allocator.free(value);
-        }
-        if (self.errmsg) |value| {
-            allocator.free(value);
-        }
-        if (self.codeName) |value| {
             allocator.free(value);
         }
     }
@@ -129,9 +113,6 @@ pub const SaslCommandResponse = struct {
         var conversation_id: ?i32 = null;
         var payload: ?[]const u8 = null;
         var done: ?bool = null;
-        var errmsg: ?[]const u8 = null;
-        var codeName: ?[]const u8 = null;
-        var code: ?i32 = null;
 
         blk_tkn: switch (try source.next()) {
             .string => |key| {
@@ -159,36 +140,18 @@ pub const SaslCommandResponse = struct {
                     }
                     continue :blk_tkn try source.next();
                 }
-                if (errmsg == null and std.mem.eql(u8, key, "errmsg")) {
-                    const errmsg_value = try source.next();
-                    errmsg = try allocator.dupe(u8, errmsg_value.string);
-                    continue :blk_tkn try source.next();
-                }
-                if (codeName == null and std.mem.eql(u8, key, "codeName")) {
-                    const codeName_value = try source.next();
-                    codeName = try allocator.dupe(u8, codeName_value.string);
-                    continue :blk_tkn try source.next();
-                }
-                if (code == null and std.mem.eql(u8, key, "code")) {
-                    const code_value = try source.next();
-                    code = std.fmt.parseInt(i32, code_value.number, 10) catch return error.UnexpectedToken;
-                    continue :blk_tkn try source.next();
-                }
             },
             .object_end => break :blk_tkn,
             else => return error.UnexpectedToken,
         }
 
-        if (ok == null or (conversation_id == null or done == null) and (errmsg == null or codeName == null or code == null)) return error.UnexpectedToken;
+        if (ok == null or (conversation_id == null or done == null)) return error.UnexpectedToken;
 
         return .{
             .ok = ok.?,
             .conversationId = conversation_id,
             .payload = payload,
             .done = done orelse false,
-            .errmsg = errmsg,
-            .codeName = codeName,
-            .code = code,
         };
     }
 
@@ -202,13 +165,6 @@ pub const SaslCommandResponse = struct {
         if (self.payload) |p| {
             clone.payload = try allocator.dupe(u8, p);
         }
-        if (self.errmsg) |e| {
-            clone.errmsg = try allocator.dupe(u8, e);
-        }
-        if (self.codeName) |c| {
-            clone.codeName = try allocator.dupe(u8, c);
-        }
-        clone.code = self.code;
 
         return clone;
     }
