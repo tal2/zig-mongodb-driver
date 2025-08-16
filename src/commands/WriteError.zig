@@ -2,6 +2,7 @@ const std = @import("std");
 const utils = @import("../utils.zig");
 const Allocator = std.mem.Allocator;
 const BsonDocument = @import("bson").BsonDocument;
+const BsonDocumentView = @import("bson").BsonDocumentView;
 pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
 
 pub const WriteError = struct {
@@ -94,5 +95,26 @@ pub const WriteError = struct {
 
     pub fn parseBson(allocator: Allocator, document: *BsonDocument) !*WriteError {
         return try document.toObject(allocator, WriteError, .{ .ignore_unknown_fields = true });
+    }
+};
+
+pub const ResponseWithWriteErrors = struct {
+    writeErrors: []*WriteError,
+
+    pub fn deinit(self: *const ResponseWithWriteErrors, allocator: Allocator) void {
+        for (self.writeErrors) |write_error| {
+            write_error.deinit(allocator);
+        }
+        allocator.free(self.writeErrors);
+        allocator.destroy(self);
+    }
+
+    pub fn isError(allocator: Allocator, document: *const BsonDocument) !bool {
+        const doc_view = try BsonDocumentView.loadDocument(allocator, document);
+        return !(try doc_view.isNullOrEmpty("writeErrors"));
+    }
+
+    pub fn parseBson(allocator: Allocator, document: *const BsonDocument) !*ResponseWithWriteErrors {
+        return try document.toObject(allocator, ResponseWithWriteErrors, .{ .ignore_unknown_fields = true });
     }
 };

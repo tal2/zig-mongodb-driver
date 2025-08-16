@@ -153,18 +153,11 @@ const InsertCommand = struct {
 pub const InsertCommandResponse = struct {
     ok: f64,
     n: i32,
-    writeErrors: ?[]*WriteError = null,
     writeConcernError: ?*WriteConcernError = null,
 
     pub fn deinit(self: *const InsertCommandResponse, allocator: Allocator) void {
         if (self.writeConcernError) |write_concern_error| {
             write_concern_error.deinit(allocator);
-        }
-        if (self.writeErrors) |errors| {
-            for (errors) |write_error| {
-                write_error.deinit(allocator);
-            }
-            allocator.free(errors);
         }
 
         allocator.destroy(self);
@@ -176,7 +169,6 @@ pub const InsertCommandResponse = struct {
 
         var ok: ?f64 = null;
         var n: ?i32 = null;
-        var write_errors: ?[]*WriteError = null;
         var write_concern_error: ?*WriteConcernError = null;
 
         blk_tkn: switch (try source.next()) {
@@ -195,24 +187,7 @@ pub const InsertCommandResponse = struct {
 
                     continue :blk_tkn try source.next();
                 }
-                if (write_errors == null and std.mem.eql(u8, key, "writeErrors")) {
-                    const write_errors_array_begin = try source.next();
-                    if (write_errors_array_begin != .array_begin) return error.UnexpectedToken;
 
-                    var write_errors_list = std.ArrayList(*WriteError).init(allocator);
-                    errdefer write_errors_list.deinit();
-
-                    var write_error_token = write_errors_array_begin;
-                    while (write_error_token != .array_end) : (write_error_token = try source.next()) {
-                        var write_error = try WriteError.jsonParse(allocator, source, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
-                        errdefer write_error.deinit(allocator);
-                        try write_errors_list.append(try write_error.dupe(allocator));
-                    }
-
-                    write_errors = try write_errors_list.toOwnedSlice();
-
-                    continue :blk_tkn try source.next();
-                }
                 if (write_concern_error == null and std.mem.eql(u8, key, "writeConcernError")) {
                     const write_concern_error_doc_parsed = try WriteConcernError.jsonParse(allocator, source, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
                     defer write_concern_error_doc_parsed.deinit(allocator);
@@ -233,7 +208,6 @@ pub const InsertCommandResponse = struct {
         return .{
             .ok = ok.?,
             .n = n.?,
-            .writeErrors = write_errors,
             .writeConcernError = write_concern_error,
         };
     }
@@ -243,21 +217,6 @@ pub const InsertCommandResponse = struct {
         errdefer response.deinit(allocator);
         response.ok = self.ok;
         response.n = self.n;
-
-        if (self.writeErrors) |errors| {
-            var write_errors = std.ArrayList(*WriteError).init(allocator);
-            errdefer write_errors.deinit();
-
-            for (errors) |error_doc| {
-                const write_error = try error_doc.dupe(allocator);
-                errdefer write_error.deinit(allocator);
-                try write_errors.append(write_error);
-            }
-
-            response.writeErrors = try write_errors.toOwnedSlice();
-        } else {
-            response.writeErrors = null;
-        }
 
         if (self.writeConcernError) |error_doc| {
             response.writeConcernError = try error_doc.dupe(allocator);

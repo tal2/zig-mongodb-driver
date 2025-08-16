@@ -364,7 +364,10 @@ pub const UpdateCommandChainable = struct {
         return self;
     }
 
-    pub fn exec(self: *UpdateCommandChainable, options: UpdateOptions) !*UpdateCommandResponse {
+    pub fn exec(self: *UpdateCommandChainable, options: UpdateOptions) !union(enum) {
+        response: *UpdateCommandResponse,
+        err: *ErrorResponse,
+    } {
         if (self.err) |err| {
             return err;
         }
@@ -386,6 +389,10 @@ pub const UpdateCommandChainable = struct {
             .ordered = options.ordered,
             .let = options.let,
         };
-        return self.collection.runCommand(&command, null, UpdateCommandResponse);
+        const result = try self.collection.runCommand(&command, null, UpdateCommandResponse);
+        return switch (result) {
+            .err => .{ .err = result.err },
+            .response => .{ .response = result.response },
+        };
     }
 };

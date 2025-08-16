@@ -39,8 +39,21 @@ Examples:
   const doc1 = .{
     .name = "doc1"
   };
-  const response = try db.collection(collection_name).insertOne(doc1, .{});
-  defer response.deinit(allocator);
+  const insert_response = try db.collection(collection_name).insertOne(doc1, .{});
+  switch (insert_response) {
+    .response => |response| {
+        defer response.deinit(allocator);
+        // ...
+    },
+    .write_errors => |write_errors| {
+        defer write_errors.deinit(allocator);
+        // ...
+    },
+    .err => |err| {
+        defer err.deinit(allocator);
+        // ...
+    },
+  }
 ```
 
 ### Document Count Estimate
@@ -55,8 +68,21 @@ Examples:
 ```zig
   const filter = .{ .name = "obj1-original" };
   const replacement = .{ .name = "obj1-replaced", .value = 42, .replaced = true };
-  const response = try collection.replaceOne(filter, replacement, .{});
-  defer response.deinit(allocator);
+  const replace_response = try collection.replaceOne(filter, replacement, .{});
+  switch (replace_response) {
+    .response => |response| {
+        defer response.deinit(allocator);
+        // ...
+    },
+    .write_errors => |write_errors| {
+        defer write_errors.deinit(allocator);
+        // ...
+    },
+    .err => |err| {
+        defer err.deinit(allocator);
+        // ...
+    },
+  }
 ```
 
 ### Update One Command
@@ -64,8 +90,21 @@ Examples:
 ```zig
   const filter = .{ .name = "obj1" };
   const update = .{ .name = "obj1-updated", .updated = true };
-  const response = try collection.updateOne(filter, update, .{});
-  defer response.deinit(allocator);
+  const update_response = try collection.updateOne(filter, update, .{});
+  switch (update_response) {
+    .response => |response| {
+        defer response.deinit(allocator);
+        // ...
+    },
+    .write_errors => |write_errors| {
+        defer write_errors.deinit(allocator);
+        // ...
+    },
+    .err => |err| {
+        defer err.deinit(allocator);
+        // ...
+    },
+  }
 ```
 
 ### Update Many Command - simple
@@ -74,7 +113,20 @@ Examples:
   const filter = .{ .status = "pending" };
   const update = .{ .@"$set" = .{ .status = "completed" } };
   const update_response = try collection.updateMany(filter, update, .{ .upsert = true });
-  defer update_response.deinit(allocator);
+  switch (update_response) {
+    .response => |response| {
+        defer response.deinit(allocator);
+        // ...
+    },
+    .write_errors => |write_errors| {
+        defer write_errors.deinit(allocator);
+        // ...
+    },
+    .err => |err| {
+        defer err.deinit(allocator);
+        // ...
+    },
+  }
 ```
 
 ### Update Many Command - chainable
@@ -87,6 +139,17 @@ Examples:
       .add(.{ .status = .{ .@"$eq" = "pending" } }, .{ .@"$set" = .{ .status = "started" } }, .{ .multi = true })
       .add(.{ .status = .{ .@"$eq" = "in-progress" } }, .{ .@"$set" = .{ .status = "completed" } }, .{ .multi = true })
       .exec(.{ .ordered = true });
+
+  switch (update_chain_result) {
+    .response => |response| {
+        defer response.deinit(allocator);
+        // ...
+    },
+    .err => |err| {
+        defer err.deinit(allocator);
+        // ...
+    },
+  }
 ```
 
 ### Document Count
@@ -110,16 +173,41 @@ Examples:
 
 ```zig
   const delete_filter = .{ .name = "doc1" };
-  const response = try db.collection(collection_name).delete(.one, delete_filter, .{});
-  defer allocator.destroy(response);
+  const delete_response = try db.collection(collection_name).delete(.one, delete_filter, .{});
+  switch (delete_response) {
+    .response => |response| {
+        defer response.deinit(allocator);
+        // ...
+    },
+    .write_errors => |write_errors| {
+        defer write_errors.deinit(allocator);
+        // ...
+    },
+    .err => |err| {
+        defer err.deinit(allocator);
+        // ...
+    },
+  }
 ```
 
 #### delete all (by filter)
 
 ```zig
   const delete_filter = .{ .name = "doc1" };
-  const response = try db.collection(collection_name).delete(.all, delete_filter, .{});
-  defer allocator.destroy(response);
+  const delete_response = try db.collection(collection_name).delete(.all, delete_filter, .{});
+  switch (delete_response) {
+    .response => |response| {
+        defer response.deinit(allocator);
+        // ...
+    },
+    .write_errors => |write_errors| {
+        defer write_errors.deinit(allocator);
+        // ...
+    },
+    .err => |err| {
+        defer err.deinit(allocator);
+        // ...
+    },
 ```
 
 ### Find Command
@@ -132,15 +220,22 @@ Examples:
    .batchSize = 2,
    .limit = 6,
   });
-  defer response.deinit();
-
-  while (try response.next()) |batch| {
-    for (batch) |doc| {
-        defer doc.deinit(allocator);
-        // do something with doc
-    }
-  }
-  try response.release(); // optionally call to kill cursor, if not used iterator till the end
+    switch (result) {
+      .cursor => {
+          var cursor = result.cursor;
+          defer cursor.deinit();
+          while (try cursor.next()) |batch| {
+            for (batch) |doc| {
+                defer doc.deinit(allocator);
+                // do something with doc
+            }
+          }
+          try cursor.release(); // optionally call to kill cursor, if   not used iterator till the end
+      },
+      .err => |err| {
+        defer err.deinit(allocator);
+        // ...
+      },
 ```
 
 #### Find Command - find one
@@ -148,7 +243,19 @@ Examples:
 ```zig
   const filter = .{ .name = .{ .@"$eq" = "doc1" } };
   const response = try db.collection(collection_name).findOne(filter, .{});
-  defer if (response) |r| r.deinit(allocator);
+  switch (result) {
+    .document => |doc| {
+        defer doc.deinit(allocator);
+        // ...
+    },
+    .err => |err| {
+        defer err.deinit(allocator);
+        // ...
+    },
+    .null => {
+        // ...
+    },
+  }
 ```
 
 ### Aggregate Command
@@ -165,14 +272,15 @@ Examples:
         return;
      };
   var response = try collection.aggregate(pipeline, .{}, .{});
-  defer response.release() catch |err| {
-    std.debug.print("Error releasing response: {}\n", .{err});
-  };
-
-  while (try result.next()) |batch| {
-    for (batch) |doc| {
-      defer doc.deinit(allocator);
-      // do something with doc
-    }
+  switch (response) {
+    .cursor => {
+        var cursor = response.cursor;
+        defer cursor.deinit();
+        // same as find command
+    },
+    .err => |err| {
+          defer err.deinit(gpa);
+          std.debug.print("Error releasing result: {}\n", .{err});
+      },
   }
 ```

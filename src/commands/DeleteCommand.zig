@@ -114,6 +114,10 @@ pub const DeleteCommandResponse = struct {
 
     n: i64,
 
+    pub fn deinit(self: *const DeleteCommandResponse, allocator: Allocator) void {
+        allocator.destroy(self);
+    }
+
     pub fn jsonParse(allocator: Allocator, source: *std.json.Scanner, options: std.json.ParseOptions) JsonParseError!DeleteCommandResponse {
         _ = allocator;
         _ = options;
