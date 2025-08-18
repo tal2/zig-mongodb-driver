@@ -10,17 +10,13 @@ pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
 
 pub const ErrorResponse = struct {
     ok: f64,
-    errmsg: ?[]const u8 = null,
-    codeName: ?[]const u8 = null,
-    code: ?i32 = null,
+    errmsg: []const u8,
+    codeName: []const u8,
+    code: i32,
 
     pub fn deinit(self: *const ErrorResponse, allocator: Allocator) void {
-        if (self.errmsg) |value| {
-            allocator.free(value);
-        }
-        if (self.codeName) |value| {
-            allocator.free(value);
-        }
+        allocator.free(self.errmsg);
+        allocator.free(self.codeName);
         allocator.destroy(self);
     }
 

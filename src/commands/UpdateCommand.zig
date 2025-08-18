@@ -10,6 +10,7 @@ const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").
 const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
 const Collation = @import("./Collation.zig").Collation;
 const Collection = @import("../Collection.zig").Collection;
+const ErrorResponse = @import("./ErrorResponse.zig").ErrorResponse;
 
 pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
 

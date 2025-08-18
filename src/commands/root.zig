@@ -68,6 +68,8 @@ pub const AggregateCommandResponse = aggregate_commands.AggregateCommandResponse
 pub const PipelineBuilder = @import("../aggregation/pipeline.zig").PipelineBuilder;
 
 pub const ErrorResponse = @import("./ErrorResponse.zig").ErrorResponse;
+pub const WriteError = @import("./WriteError.zig").WriteError;
+pub const ResponseWithWriteErrors = @import("./WriteError.zig").ResponseWithWriteErrors;
 
 test {
     _ = @import("./types.zig");
