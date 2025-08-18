@@ -67,6 +67,9 @@ pub const CursorOptions = aggregate_commands.CursorOptions;
 pub const AggregateCommandResponse = aggregate_commands.AggregateCommandResponse;
 pub const PipelineBuilder = @import("../aggregation/pipeline.zig").PipelineBuilder;
 
+pub const bulk_operations = @import("./bulk-operations.zig");
+pub const BulkWriteOpsChainable = bulk_operations.BulkWriteOpsChainable;
+
 pub const ErrorResponse = @import("./ErrorResponse.zig").ErrorResponse;
 pub const WriteError = @import("./WriteError.zig").WriteError;
 pub const ResponseWithWriteErrors = @import("./WriteError.zig").ResponseWithWriteErrors;

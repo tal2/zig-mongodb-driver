@@ -42,6 +42,9 @@ const AggregateCommandResponse = commands.AggregateCommandResponse;
 const ErrorResponse = commands.ErrorResponse;
 const WriteError = commands.WriteError;
 const ResponseWithWriteErrors = commands.ResponseWithWriteErrors;
+const BulkWriteOps = @import("commands/bulk-operations.zig").BulkWriteOps;
+const BulkWriteResponse = @import("commands/bulk-operations.zig").BulkWriteResponse;
+const BulkWriteOpsChainable = @import("commands/bulk-operations.zig").BulkWriteOpsChainable;
 
 pub const Collection = struct {
     database: *Database,
@@ -78,7 +81,7 @@ pub const Collection = struct {
         const command_insert = try insert_commands.makeInsertMany(self.allocator, self.collection_name, docs, options, null, self.database.db_name, self.server_api);
         defer command_insert.deinit(self.allocator);
 
-        const result = try self.runWriteCommandOpcode(command_insert, InsertCommandResponse);
+        const result = try self.runWriteCommandOpcode(command_insert, InsertCommandResponse, ResponseWithWriteErrors);
         return switch (result) {
             .response => |response| .{ .response = response },
             .write_errors => |write_errors| .{ .write_errors = write_errors },
@@ -100,7 +103,7 @@ pub const Collection = struct {
         const command_insert = try insert_commands.makeInsertOne(self.allocator, self.collection_name, doc, options, null, self.database.db_name, self.server_api);
         defer command_insert.deinit(self.allocator);
 
-        const result = try self.runWriteCommandOpcode(command_insert, InsertCommandResponse);
+        const result = try self.runWriteCommandOpcode(command_insert, InsertCommandResponse, ResponseWithWriteErrors);
         return switch (result) {
             .response => |response| .{ .response = response },
             .write_errors => |write_errors| .{ .write_errors = write_errors },
@@ -152,13 +155,18 @@ pub const Collection = struct {
         };
     }
 
-    pub fn delete(self: *const Collection, limit: Limit, filter: anytype, options: DeleteOptions) !union(enum) { response: *DeleteCommandResponse, err: *ErrorResponse } {
+    pub fn delete(self: *const Collection, limit: Limit, filter: anytype, options: DeleteOptions) !union(enum) {
+        response: *DeleteCommandResponse,
+        write_errors: *ResponseWithWriteErrors,
+        err: *ErrorResponse,
+    } {
         const command_delete = try delete_commands.makeDeleteCommand(self.allocator, self.collection_name, filter, limit, options, null, self.database.db_name, self.server_api);
         defer command_delete.deinit(self.allocator);
 
-        const result = try self.runCommandOpcode(command_delete, DeleteCommandResponse);
+        const result = try self.runWriteCommandOpcode(command_delete, DeleteCommandResponse, ResponseWithWriteErrors);
         return switch (result) {
             .response => |response| .{ .response = response },
+            .write_errors => |write_errors| .{ .write_errors = write_errors },
             .err => |err| .{ .err = err },
         };
     }
@@ -171,7 +179,7 @@ pub const Collection = struct {
         const command_replace = try commands.makeReplaceCommand(self.allocator, self.collection_name, filter, replacement, options, null, self.database.db_name, self.server_api);
         defer command_replace.deinit(self.allocator);
 
-        const result = try self.runWriteCommandOpcode(command_replace, ReplaceCommandResponse);
+        const result = try self.runWriteCommandOpcode(command_replace, ReplaceCommandResponse, ResponseWithWriteErrors);
         return switch (result) {
             .response => |response| .{ .response = response },
             .write_errors => |write_errors| .{ .write_errors = write_errors },
@@ -188,7 +196,7 @@ pub const Collection = struct {
 
         defer command_update.deinit(self.allocator);
 
-        const result = try self.runWriteCommandOpcode(command_update, UpdateCommandResponse);
+        const result = try self.runWriteCommandOpcode(command_update, UpdateCommandResponse, ResponseWithWriteErrors);
         return switch (result) {
             .response => |response| .{ .response = response },
             .write_errors => |write_errors| .{ .write_errors = write_errors },
@@ -204,7 +212,7 @@ pub const Collection = struct {
         const command_update = try commands.makeUpdateManyCommand(self.allocator, self.collection_name, filter, update, options, null, self.database.db_name, self.server_api);
         defer command_update.deinit(self.allocator);
 
-        const result = try self.runWriteCommandOpcode(command_update, UpdateCommandResponse);
+        const result = try self.runWriteCommandOpcode(command_update, UpdateCommandResponse, ResponseWithWriteErrors);
         return switch (result) {
             .response => |response| .{ .response = response },
             .write_errors => |write_errors| .{ .write_errors = write_errors },
@@ -282,9 +290,9 @@ pub const Collection = struct {
     }
 
 
-    pub fn runWriteCommandOpcode(self: *const Collection, command_op_msg: *opcode.OpMsg, comptime ResponseType: type) !union(enum) {
+    pub fn runWriteCommandOpcode(self: *const Collection, command_op_msg: *const opcode.OpMsg, comptime ResponseType: type, comptime ResponseErrorType: type) !union(enum) {
         response: *ResponseType,
-        write_errors: *ResponseWithWriteErrors,
+        write_errors: *ResponseErrorType,
         err: *ErrorResponse,
     } {
         const response = try self.database.stream.send(self.allocator, command_op_msg);
@@ -296,8 +304,8 @@ pub const Collection = struct {
             return .{ .err = error_response };
         }
 
-        if (try ResponseWithWriteErrors.isError(self.allocator, response.section_document.document)) {
-            const response_with_write_errors = try ResponseWithWriteErrors.parseBson(self.allocator, response.section_document.document);
+        if (try ResponseErrorType.isError(self.allocator, response.section_document.document)) {
+            const response_with_write_errors = try ResponseErrorType.parseBson(self.allocator, response.section_document.document);
             errdefer response_with_write_errors.deinit(self.allocator);
             return .{ .write_errors = response_with_write_errors };
         }
