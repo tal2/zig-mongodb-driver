@@ -76,13 +76,13 @@ fn calculateMessageLength(message: *const OpMsg) i32 {
     const section_payload_type_size: comptime_int = @sizeOf(u8);
     const flags_size: comptime_int = @sizeOf(u32);
 
-    var len: i32 = msg_header_size;
-    len += flags_size;
-    len += section_payload_type_size;
+    var len: i32 = msg_header_size + flags_size + section_payload_type_size;
     len += @as(i32, @intCast(message.section_document.document.len));
 
-    if (message.section_sequence) |seq| {
-        len += seq.size;
+    if (message.section_sequences) |sequences| {
+        for (sequences) |seq| {
+            len += seq.size + @sizeOf(u8);
+        }
     }
 
     return len;
@@ -114,10 +114,14 @@ pub const OpMsg = struct {
     header: MsgHeader,
     flag_bits: u32,
     section_document: DocumentSection,
-    section_sequence: ?SequenceSection = null,
+    section_sequences: ?[]*const SequenceSection = null,
     checksum: ?u32 = null,
 
     pub fn init(allocator: Allocator, command: *const BsonDocument, request_id: i32, response_to: i32, flags: OpMsg.OpMsgFlags) Allocator.Error!*OpMsg {
+        return try initSequence(allocator, command, null, request_id, response_to, flags);
+    }
+
+    pub fn initSequence(allocator: Allocator, command: *const BsonDocument, sequences: ?[]*const SequenceSection, request_id: i32, response_to: i32, flags: OpMsg.OpMsgFlags) Allocator.Error!*OpMsg {
         var message = try allocator.create(OpMsg);
         message.* = OpMsg{
             .header = MsgHeader{
@@ -128,6 +132,7 @@ pub const OpMsg = struct {
             },
             .flag_bits = flags.getFlagBits(),
             .section_document = .{ .document = command },
+            .section_sequences = sequences,
         };
         message.header.message_length = calculateMessageLength(message);
         return message;
@@ -135,8 +140,10 @@ pub const OpMsg = struct {
 
     pub fn deinit(self: *const OpMsg, allocator: Allocator) void {
         self.section_document.document.deinit(allocator);
-        if (self.section_sequence) |seq| {
-            seq.deinit(allocator);
+        if (self.section_sequences) |sequences| {
+            for (sequences) |seq| {
+                seq.deinit(allocator);
+            }
         }
         allocator.destroy(self);
     }
@@ -148,21 +155,12 @@ pub const OpMsg = struct {
         try writer.writeInt(i32, @intFromEnum(self.header.op_code), .little);
         try writer.writeInt(u32, self.flag_bits, .little);
 
-        try writer.writeInt(u8, DocumentSection.payload_type, .little);
-        try writer.writeAll(self.section_document.document.raw_data);
-        // std.debug.print("writeMessage: done\n", .{});
-        if (self.section_sequence) |seq| {
-            _ = seq;
-            @panic("not implemented");
-            // try writer.writeInt(u8, SequenceSection.payload_type, .little);
+        try self.section_document.write(writer);
 
-            // try writer.writeInt(i32, seq.size, .little);
-            // try writer.writeAll(seq.identifier[0..]);
-
-            // for (seq.documents) |doc| {
-            //     // try writer.writeInt(i32, @as(i32, @intCast(doc.len)), .little);
-            //     try writer.writeAll(doc.raw_data);
-            // }
+        if (self.section_sequences) |sequences| {
+            for (sequences) |seq| {
+                try seq.write(writer);
+            }
         }
     }
 
@@ -322,20 +320,48 @@ pub const MsgHeader = struct {
 const DocumentSection = struct {
     const payload_type = 0;
     document: *const BsonDocument,
+
+    pub fn write(self: *const DocumentSection, writer: anytype) !void {
+        try writer.writeInt(u8, DocumentSection.payload_type, .little);
+        try writer.writeAll(self.document.raw_data);
+    }
 };
 
-const SequenceSection = struct {
+pub const SequenceSection = struct {
     const payload_type = 1;
 
     size: i32,
     identifier: []const u8,
-    documents: []*BsonDocument,
+    documents: []*const BsonDocument,
+
+    pub fn init(allocator: Allocator, identifier: []const u8, documents: []*const BsonDocument) Allocator.Error!*SequenceSection {
+        var size: usize = @sizeOf(i32) + identifier.len + 1;
+        for (documents) |doc| {
+            size += doc.len;
+        }
+
+        const sequence = try allocator.create(SequenceSection);
+        sequence.* = SequenceSection{
+            .size = @as(i32, @intCast(size)),
+            .identifier = identifier,
+            .documents = documents,
+        };
+        return sequence;
+    }
 
     pub fn deinit(self: *const SequenceSection, allocator: Allocator) void {
         for (self.documents) |doc| {
             doc.deinit(allocator);
         }
-        allocator.free(self.identifier);
-        allocator.destroy(self);
+    }
+
+    pub fn write(self: *const SequenceSection, writer: anytype) !void {
+        try writer.writeInt(u8, SequenceSection.payload_type, .little);
+        try writer.writeInt(i32, self.size, .little);
+        try writer.writeAll(self.identifier[0..]);
+        try writer.writeByte(0x0);
+        for (self.documents) |doc| {
+            try writer.writeAll(doc.raw_data);
+        }
     }
 };
