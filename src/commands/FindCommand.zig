@@ -6,6 +6,7 @@ const CursorInfo = @import("CursorInfo.zig").CursorInfo;
 const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
 const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
 const Hint = @import("../protocol/hint.zig").Hint;
+const Comment = @import("../protocol/comment.zig").Comment;
 
 const Allocator = std.mem.Allocator;
 const BsonDocument = bson.BsonDocument;
@@ -98,10 +99,7 @@ pub const FindCommand = struct {
 
     collation: ?bson.BsonDocument = null,
 
-    comment: ?union(enum) { // TODO:
-        string: []const u8,
-        document: bson.BsonDocument,
-    } = null,
+    comment: ?Comment = null,
 
     // cursorType: ?types.CursorType = null,
 
@@ -244,10 +242,8 @@ pub const FindOptions = struct {
 
     collation: ?bson.BsonDocument = null,
 
-    comment: ?union(enum) { // TODO:
-        string: []const u8,
-        document: bson.BsonDocument,
-    } = null,
+    comment: ?Comment = null,
+
     // cursorType: ?types.CursorType = null,
 
     hint: ?Hint = null,
@@ -307,25 +303,7 @@ pub const FindOptions = struct {
         if (self.min) |min| command_data.min = min;
         if (self.collation) |collation| command_data.collation = collation;
 
-        if (self.hint) |hint| {
-            switch (hint) {
-                .document => |document| {
-                    command_data.hint = .{ .document = document };
-                },
-                .string => |string| {
-                    command_data.hint = .{ .string = string };
-                },
-            }
-        }
-        if (self.comment) |comment| {
-            switch (comment) {
-                .document => |document| {
-                    command_data.comment = .{ .document = document };
-                },
-                .string => |string| {
-                    command_data.comment = .{ .string = string };
-                },
-            }
-        }
+        if (self.hint) |hint| command_data.hint = hint;
+        if (self.comment) |comment| command_data.comment = comment;
     }
 };

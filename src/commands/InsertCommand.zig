@@ -7,6 +7,7 @@ const WriteError = @import("WriteError.zig").WriteError;
 const WriteConcernError = @import("WriteConcernError.zig").WriteConcernError;
 const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
 const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
+const Comment = @import("../protocol/comment.zig").Comment;
 
 const Allocator = std.mem.Allocator;
 const BsonDocument = bson.BsonDocument;
@@ -51,10 +52,8 @@ pub const InsertOneOptions = struct {
     run_command_options: ?RunCommandOptions = null,
 
     bypassDocumentValidation: ?bool = null,
-    // comment: ?union(enum) { // TODO:
-    //     string: []const u8,
-    //     document: bson.BsonDocument,
-    // } = null,
+
+    comment: ?Comment = null,
 
     // /// @since MongoDB 8.2
     // rawData: ?bool = null,
@@ -123,7 +122,7 @@ pub const InsertManyOptions = struct {
     bypass_document_validation: ?bool = null,
     ordered: bool = true,
 
-    comment: ?bson.BsonDocument = null,
+    comment: ?Comment = null,
 
     // /// @since MongoDB 8.2
     // raw_data: ?bool = null,
@@ -138,7 +137,7 @@ const InsertCommand = struct {
 
     bypassDocumentValidation: ?bool = null,
     ordered: ?bool = null,
-    comment: ?*BsonDocument = null,
+    comment: ?Comment = null,
     // writeConcern: ?*WriteConcern = null,
     // writeCommandOptions: ?*WriteCommandOptions = null,
 

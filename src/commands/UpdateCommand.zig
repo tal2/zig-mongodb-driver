@@ -12,6 +12,7 @@ const Collation = @import("./Collation.zig").Collation;
 const Collection = @import("../Collection.zig").Collection;
 const ErrorResponse = @import("./ErrorResponse.zig").ErrorResponse;
 const Hint = @import("../protocol/hint.zig").Hint;
+const Comment = @import("../protocol/comment.zig").Comment;
 
 pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
 
@@ -165,10 +166,7 @@ pub const UpdateCommand = struct {
     hint: ?Hint = null,
     let: ?bson.BsonDocument = null,
 
-    // comment: ?union(enum) {
-    //     string: []const u8,
-    //     document: bson.BsonDocument,
-    // } = null,
+    comment: ?Comment = null,
 
     writeConcern: ?bson.BsonDocument = null,
 
@@ -318,7 +316,7 @@ pub const UpdateOptions = struct {
 
     let: ?bson.BsonDocument = null,
 
-    comment: ?bson.BsonDocument = null,
+    comment: ?Comment = null,
 
     sort: ?bson.BsonDocument = null,
 

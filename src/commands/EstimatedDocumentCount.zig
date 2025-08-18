@@ -7,6 +7,7 @@ const BsonDocument = bson.BsonDocument;
 const CountCommand = @import("./CountCommand.zig").CountCommand;
 const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
 const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
+const Comment = @import("../protocol/comment.zig").Comment;
 
 pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
 
@@ -42,10 +43,7 @@ pub const EstimatedDocumentCountOptions = struct {
     // /// NOTE: This option is deprecated in favor of timeoutMS.
     // maxTimeMS: ?i64 = null,
 
-    // comment: ?union(enum) {
-    //     string: []const u8,
-    //     document: bson.BsonDocument,
-    // } = null,
+    comment: ?Comment = null,
 
     // /// @since MongoDB 8.2
     // rawData: ?bool = null,

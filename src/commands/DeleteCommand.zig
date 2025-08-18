@@ -10,6 +10,7 @@ const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").
 const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
 const Collation = @import("./Collation.zig").Collation;
 const Hint = @import("../protocol/hint.zig").Hint;
+const Comment = @import("../protocol/comment.zig").Comment;
 
 pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
 
@@ -67,10 +68,7 @@ const DeleteCommand = struct {
     hint: ?Hint = null,
     let: ?bson.BsonDocument = null,
 
-    // comment: ?union(enum) {
-    //     string: []const u8,
-    //     document: bson.BsonDocument,
-    // } = null,
+    comment: ?Comment = null,
 
     // /// @since MongoDB 8.2
     // raw_data: ?bool = null,
@@ -167,10 +165,7 @@ pub const DeleteOptions = struct {
     hint: ?Hint = null,
 
     let: ?bson.BsonDocument = null,
-    // comment: ?union(enum) {
-    //     string: []const u8,
-    //     document: bson.BsonDocument,
-    // } = null,
+    comment: ?Comment = null,
     // /// @since MongoDB 8.2
     // raw_data: ?bool = null,
 

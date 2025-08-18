@@ -5,6 +5,7 @@ const opcode = @import("../protocol/opcode.zig");
 const CursorInfo = @import("CursorInfo.zig").CursorInfo;
 const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
 const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
+const Comment = @import("../protocol/comment.zig").Comment;
 
 const Allocator = std.mem.Allocator;
 const BsonDocument = bson.BsonDocument;
@@ -48,7 +49,8 @@ const GetMoreCommand = struct {
     batchSize: ?i32 = null,
 
     maxTimeMS: ?i64 = null,
-    comment: ?*BsonDocument = null,
+
+    comment: ?Comment = null,
 
     apiVersion: ?[]const u8 = null,
     apiStrict: ?bool = null,
@@ -65,7 +67,7 @@ pub const GetMoreCommandOptions = struct {
 
     maxTimeMS: ?i64 = null,
 
-    comment: ?*BsonDocument = null, // only bson, not a union
+    comment: ?Comment = null,
 };
 
 pub const GetMoreCommandResponse = struct {

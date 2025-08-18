@@ -3,6 +3,7 @@ const bson = @import("bson");
 const utils = @import("../utils.zig");
 const opcode = @import("../protocol/opcode.zig");
 const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
+const Comment = @import("../protocol/comment.zig").Comment;
 
 const Allocator = std.mem.Allocator;
 const BsonDocument = bson.BsonDocument;
@@ -43,7 +44,7 @@ pub const KillCursorsCommand = struct {
 
     @"$db": []const u8,
 
-    comment: ?[]const u8 = null,
+    comment: ?Comment = null,
 
     apiVersion: ?[]const u8 = null,
     apiStrict: ?bool = null,

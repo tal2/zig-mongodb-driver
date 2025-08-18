@@ -8,6 +8,7 @@ const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").
 const commands = @import("./root.zig");
 const FindOptions = commands.FindOptions;
 const Hint = @import("../protocol/hint.zig").Hint;
+const Comment = @import("../protocol/comment.zig").Comment;
 
 const Allocator = std.mem.Allocator;
 const BsonDocument = bson.BsonDocument;
@@ -108,7 +109,7 @@ pub const AggregateCommand = struct {
 
     hint: ?Hint = null,
 
-    comment: ?bson.BsonDocument = null,
+    comment: ?Comment = null,
 
     writeConcern: ?bson.BsonDocument = null,
 
@@ -176,7 +177,7 @@ pub const AggregateOptions = struct {
     /// NOTE: This option is deprecated in favor of timeoutMS.
     maxTimeMS: ?i64 = null,
 
-    comment: ?bson.BsonDocument = null,
+    comment: ?Comment = null,
 
     hint: ?Hint = null,
 
