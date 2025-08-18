@@ -45,7 +45,7 @@ pub const CursorIterator = struct {
         };
     }
 
-    pub fn release(self: *const CursorIterator) !void {
+    pub fn release(self: *CursorIterator) !void {
         defer self.deinit();
 
         if (self.cursor_id != 0) {
@@ -54,11 +54,11 @@ pub const CursorIterator = struct {
         }
     }
 
-    pub fn deinit(self: *const CursorIterator) void {
+    pub fn deinit(self: *CursorIterator) void {
         for (self.buffer.items) |item| {
             item.deinit(self.allocator);
         }
-        self.buffer.deinit();
+        self.buffer.clearAndFree();
         // self.allocator.destroy(self);
     }
 
@@ -68,8 +68,6 @@ pub const CursorIterator = struct {
             return null;
         }
         if (self.buffer.items.len == 0) {
-            //  error {"ok":0.0,"errmsg":"cannot set maxTimeMS on getMore command for a non-awaitData cursor","code":2,"codeName":"BadValue"}
-            //  error {"ok":0.0,"errmsg":"cursor id 4215242176205971555 not found","code":43,"codeName":"CursorNotFound"}
             const command = try commands.makeGetMoreCommand(self.allocator, self.collection.collection_name, self.cursor_id, .{
                 .batchSize = self.batch_size,
                 // .maxTimeMS = 1000,
