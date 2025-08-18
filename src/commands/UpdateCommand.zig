@@ -11,6 +11,7 @@ const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
 const Collation = @import("./Collation.zig").Collation;
 const Collection = @import("../Collection.zig").Collection;
 const ErrorResponse = @import("./ErrorResponse.zig").ErrorResponse;
+const Hint = @import("../protocol/hint.zig").Hint;
 
 pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
 
@@ -161,11 +162,7 @@ pub const UpdateCommand = struct {
 
     collation: ?Collation = null,
 
-    // hint: ?union(enum) {
-    //     string: []const u8,
-    //     document: bson.BsonDocument,
-    // } = null,
-
+    hint: ?Hint = null,
     let: ?bson.BsonDocument = null,
 
     // comment: ?union(enum) {
@@ -214,11 +211,7 @@ pub const UpdateStatement = struct {
 
     collation: ?Collation = null,
 
-    // hint: ?union(enum) {
-    //     string: []const u8,
-    //     document: bson.BsonDocument,
-    // } = null,
-
+    hint: ?Hint = null,
 };
 
 pub const UpdateStatementOptions = struct {
@@ -317,10 +310,7 @@ pub const UpdateOptions = struct {
 
     collation: ?Collation = null,
 
-    // hint: ?union(enum) {
-    //     string: []const u8,
-    //     document: bson.BsonDocument,
-    // } = null,
+    hint: ?Hint = null,
 
     array_filters: ?[]bson.BsonDocument = null,
 

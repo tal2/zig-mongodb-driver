@@ -8,6 +8,7 @@ const BsonDocument = bson.BsonDocument;
 const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
 const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
 const Collation = @import("./Collation.zig").Collation;
+const Hint = @import("../protocol/hint.zig").Hint;
 
 pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
 
@@ -64,11 +65,7 @@ const ReplaceCommand = struct {
 
     collation: ?Collation = null,
 
-    // hint: ?union(enum) {
-    //     string: []const u8,
-    //     document: bson.BsonDocument,
-    // } = null,
-
+    hint: ?Hint = null,
     let: ?bson.BsonDocument = null,
 
     // comment: ?union(enum) {
@@ -108,10 +105,7 @@ pub const ReplaceStatement = struct {
 
     collation: ?Collation = null,
 
-    // hint: ?union(enum) {
-    //     string: []const u8,
-    //     document: bson.BsonDocument,
-    // } = null,
+    hint: ?Hint = null,
 
     sort: ?bson.BsonDocument = null,
 };
@@ -205,10 +199,7 @@ pub const ReplaceOptions = struct {
 
     collation: ?bson.BsonDocument = null,
 
-    // hint: ?union(enum) {
-    //     string: []const u8,
-    //     document: bson.BsonDocument,
-    // } = null,
+    hint: ?Hint = null,
 
     upsert: ?bool = null,
 

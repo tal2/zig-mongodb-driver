@@ -5,6 +5,7 @@ const opcode = @import("../protocol/opcode.zig");
 const CursorInfo = @import("CursorInfo.zig").CursorInfo;
 const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
 const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
+const Hint = @import("../protocol/hint.zig").Hint;
 
 const Allocator = std.mem.Allocator;
 const BsonDocument = bson.BsonDocument;
@@ -104,11 +105,7 @@ pub const FindCommand = struct {
 
     // cursorType: ?types.CursorType = null,
 
-    hint: ?union(enum) { // TODO:
-        string: []const u8,
-        document: bson.BsonDocument,
-    } = null,
-
+    hint: ?Hint = null,
     limit: ?i64 = null,
 
     max: ?bson.BsonDocument = null,
@@ -253,10 +250,7 @@ pub const FindOptions = struct {
     } = null,
     // cursorType: ?types.CursorType = null,
 
-    hint: ?union(enum) { // TODO:
-        string: []const u8,
-        document: bson.BsonDocument,
-    } = null,
+    hint: ?Hint = null,
 
     limit: ?i64 = null,
 

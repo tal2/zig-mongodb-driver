@@ -5,6 +5,7 @@ const BsonDocument = bson.BsonDocument;
 const FindCommand = @import("FindCommand.zig").FindCommand;
 const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
 const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
+const Hint = @import("../protocol/hint.zig").Hint;
 
 pub fn makeFindOneCommand(
     allocator: std.mem.Allocator,
@@ -65,11 +66,8 @@ pub const FindOneOptions = struct {
     //     document: bson.BsonDocument,
     // } = null,
 
-    // hint: ?union(enum) { // TODO:
-    //     string: []const u8,
-    //     document: bson.BsonDocument,
-    // } = null,
 
+    hint: ?Hint = null,
     limit: ?i64 = null,
 
     max: ?bson.BsonDocument = null,
@@ -121,5 +119,6 @@ pub const FindOneOptions = struct {
         if (self.maxAwaitTimeMS) |maxAwaitTimeMS| command_data.maxAwaitTimeMS = maxAwaitTimeMS;
         if (self.min) |min| command_data.min = min;
         if (self.collation) |collation| command_data.collation = collation;
+        if (self.hint) |hint| command_data.hint = hint;
     }
 };

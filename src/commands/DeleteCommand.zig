@@ -9,6 +9,7 @@ const Limit = @import("types.zig").Limit;
 const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
 const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
 const Collation = @import("./Collation.zig").Collation;
+const Hint = @import("../protocol/hint.zig").Hint;
 
 pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
 
@@ -62,11 +63,8 @@ const DeleteCommand = struct {
     @"$db": []const u8,
     collation: ?Collation = null,
 
-    // hint: ?union(enum) {
-    //     string: []const u8,
-    //     document: bson.BsonDocument,
-    // } = null,
 
+    hint: ?Hint = null,
     let: ?bson.BsonDocument = null,
 
     // comment: ?union(enum) {
@@ -103,10 +101,7 @@ pub const DeleteStatement = struct {
 
     collation: ?Collation = null,
 
-    // hint: ?union(enum) {
-    //     string: []const u8,
-    //     document: bson.BsonDocument,
-    // } = null,
+    hint: ?Hint = null,
 };
 
 pub const DeleteCommandResponse = struct {
@@ -169,10 +164,7 @@ pub const DeleteOptions = struct {
 
     collation: ?Collation = null,
 
-    //  hint: ?union(enum) {
-    //     string: []const u8,
-    //     document: bson.BsonDocument,
-    // } = null,
+    hint: ?Hint = null,
 
     let: ?bson.BsonDocument = null,
     // comment: ?union(enum) {

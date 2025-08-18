@@ -7,6 +7,7 @@ const CursorInfo = @import("./CursorInfo.zig").CursorInfo;
 const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
 const commands = @import("./root.zig");
 const FindOptions = commands.FindOptions;
+const Hint = @import("../protocol/hint.zig").Hint;
 
 const Allocator = std.mem.Allocator;
 const BsonDocument = bson.BsonDocument;
@@ -105,7 +106,7 @@ pub const AggregateCommand = struct {
 
     collation: ?bson.BsonDocument = null,
 
-    // hint: ?bson.BsonDocument = null,
+    hint: ?Hint = null,
 
     comment: ?bson.BsonDocument = null,
 
@@ -177,10 +178,7 @@ pub const AggregateOptions = struct {
 
     comment: ?bson.BsonDocument = null,
 
-    // hint: ?union(enum) { // TODO: add hint
-    //     string: []const u8,
-    //     document: bson.BsonDocument,
-    // } = null,
+    hint: ?Hint = null,
 
     writeConcern: ?bson.BsonDocument = null,
 
