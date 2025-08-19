@@ -1,12 +1,8 @@
 const std = @import("std");
 const bson = @import("bson");
-const utils = @import("../utils.zig");
-const opcode = @import("../protocol/opcode.zig");
 
 const Allocator = std.mem.Allocator;
 const BsonDocument = bson.BsonDocument;
-const Limit = @import("types.zig").Limit;
-const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
 const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
 const Collation = @import("./Collation.zig").Collation;
 const Hint = @import("../protocol/hint.zig").Hint;
@@ -14,49 +10,8 @@ const Comment = @import("../protocol/comment.zig").Comment;
 
 pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
 
-pub fn makeDeleteCommand(
-    allocator: std.mem.Allocator,
-    collection_name: []const u8,
-    filter: anytype,
-    limit: Limit,
-    options: DeleteOptions,
-    max_wire_version: ?i32, // maxWireVersion from handshake
-    db_name: []const u8,
-    server_api: ServerApi,
-) !*opcode.OpMsg {
-    _ = max_wire_version;
-    var filter_parsed = try BsonDocument.fromObject(allocator, @TypeOf(filter), filter);
-    defer filter_parsed.deinit(allocator);
-
-    var command_data: DeleteCommand = .{
-        .delete = collection_name,
-        .deletes = &[_]DeleteStatement{DeleteStatement{
-            .q = filter_parsed.*,
-            .limit = switch (limit) {
-                .all => 0,
-                .one => 1,
-            },
-        }},
-        .@"$db" = db_name,
-        .ordered = options.ordered,
-        .writeConcern = options.writeConcern,
-        // .comment = options.comment,
-        .let = options.let,
-        // .raw_data =  opts.rawData,
-        .maxTimeMS = options.maxTimeMS,
-    };
-    server_api.addToCommand(&command_data);
-    if (options.run_command_options) |run_command_options| run_command_options.addToCommand(&command_data);
-
-    var command = try BsonDocument.fromObject(allocator, @TypeOf(command_data), command_data);
-    errdefer command.deinit(allocator);
-
-    const result = try opcode.OpMsg.init(allocator, command, 1, 0, .{});
-    return result;
-}
-
 /// @see https://www.mongodb.com/docs/manual/reference/command/delete/
-const DeleteCommand = struct {
+pub const DeleteCommand = struct {
     pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
 
     delete: []const u8,
@@ -88,12 +43,67 @@ const DeleteCommand = struct {
     readPreference: ?[]const u8 = null,
     timeoutMS: ?i64 = null,
     // session: ?ClientSession = null,
+
+    pub fn deinit(self: *const DeleteCommand, allocator: Allocator) void {
+        for (self.deletes) |delete| delete.q.deinit(allocator);
+        allocator.free(self.deletes);
+    }
+
+    pub fn makeDeleteOne(
+        allocator: std.mem.Allocator,
+        db_name: []const u8,
+        collection_name: []const u8,
+        filter: anytype,
+        options: DeleteOptions,
+    ) !DeleteCommand {
+        const filter_parsed = try BsonDocument.fromObject(allocator, @TypeOf(filter), filter);
+
+        const deletes = try allocator.alloc(DeleteStatement, 1);
+        deletes[0] = DeleteStatement{
+            .q = filter_parsed,
+            .limit = 1,
+        };
+
+        var command: DeleteCommand = .{
+            .delete = collection_name,
+            .deletes = deletes,
+            .@"$db" = db_name,
+        };
+        options.addToCommand(&command);
+
+        return command;
+    }
+
+    pub fn makeDeleteMany(
+        allocator: std.mem.Allocator,
+        db_name: []const u8,
+        collection_name: []const u8,
+        filter: anytype,
+        options: DeleteOptions,
+    ) !DeleteCommand {
+        const filter_parsed = try BsonDocument.fromObject(allocator, @TypeOf(filter), filter);
+
+        const deletes = try allocator.alloc(DeleteStatement, 1);
+        deletes[0] = DeleteStatement{
+            .q = filter_parsed,
+            .limit = 0,
+        };
+
+        var command: DeleteCommand = .{
+            .delete = collection_name,
+            .deletes = deletes,
+            .@"$db" = db_name,
+        };
+        options.addToCommand(&command);
+
+        return command;
+    }
 };
 
 pub const DeleteStatement = struct {
     pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
 
-    q: BsonDocument,
+    q: *BsonDocument,
 
     limit: i32,
 
@@ -174,4 +184,16 @@ pub const DeleteOptions = struct {
     maxTimeMS: ?i64 = null,
 
     ordered: ?bool = null,
+
+    pub fn addToCommand(self: *const DeleteOptions, command: *DeleteCommand) void {
+        if (self.run_command_options) |run_command_options| run_command_options.addToCommand(command);
+
+        command.collation = self.collation;
+        command.hint = self.hint;
+        command.let = self.let;
+        command.comment = self.comment;
+        command.writeConcern = self.writeConcern;
+        command.maxTimeMS = self.maxTimeMS;
+        command.ordered = self.ordered;
+    }
 };

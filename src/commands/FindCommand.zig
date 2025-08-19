@@ -1,74 +1,13 @@
 const std = @import("std");
 const bson = @import("bson");
-const utils = @import("../utils.zig");
-const opcode = @import("../protocol/opcode.zig");
 const CursorInfo = @import("CursorInfo.zig").CursorInfo;
-const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
 const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
 const Hint = @import("../protocol/hint.zig").Hint;
 const Comment = @import("../protocol/comment.zig").Comment;
 
 const Allocator = std.mem.Allocator;
 const BsonDocument = bson.BsonDocument;
-const parseBsonDocument = utils.parseBsonDocument;
 const LimitNumbered = @import("./types.zig").LimitNumbered;
-
-pub fn makeFindCommand(
-    allocator: std.mem.Allocator,
-    collection_name: []const u8,
-    filter: anytype,
-    limit: LimitNumbered,
-    options: FindOptions,
-    server_version: ?i32, // maxWireVersion from handshake,
-    db_name: []const u8,
-    server_api: ServerApi,
-) !*opcode.OpMsg {
-    const batch_size = switch (limit) {
-        .all => options.batchSize orelse null,
-        .one => 1,
-        .n => |n| @as(i32, @intCast(@min(options.batchSize orelse std.math.maxInt(i32), n +| 1))),
-    };
-
-    const server_version_before_3_2 = server_version != null and server_version.? < 4;
-
-    const single_batch = if (server_version_before_3_2) null else switch (limit) {
-        .all => null,
-        .one => true,
-        .n => |num| num < 0,
-    };
-
-    const filter_parsed = try bson.BsonDocument.fromObject(allocator, @TypeOf(filter), filter);
-    errdefer filter_parsed.deinit(allocator);
-
-    var command_data: FindCommand = .{
-        .find = collection_name,
-        .filter = filter_parsed,
-        .@"$db" = db_name,
-        .limit = switch (limit) {
-            .all => null,
-            .one => 1,
-            .n => |num| if (server_version_before_3_2) num else @as(i64, @intCast(@abs(num))),
-        },
-        .singleBatch = single_batch,
-        .batchSize = batch_size,
-        // .tailable = options.tailable,
-        // .awaitData = options.await_data,
-        // .allowDiskUse = options.allow_disk_use,
-        // .allowPartialResults = options.allow_partial_results,
-        // .comment = options.comment,
-        // .cursorType = options.cursor_type,
-
-    };
-    defer command_data.deinit(allocator);
-    options.addToCommand(&command_data);
-    server_api.addToCommand(&command_data);
-
-    var command = try BsonDocument.fromObject(allocator, @TypeOf(command_data), command_data);
-    errdefer command.deinit(allocator);
-
-    const result = try opcode.OpMsg.init(allocator, command, 1, 0, .{});
-    return result;
-}
 
 pub const FindCommand = struct {
     pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
@@ -78,10 +17,6 @@ pub const FindCommand = struct {
     @"$db": []const u8,
 
     filter: *BsonDocument,
-
-    // limit: ?i64,
-
-    // batchSize: ?i32,
 
     singleBatch: ?bool = null,
 
@@ -168,24 +103,68 @@ pub const FindCommand = struct {
             min.deinit(allocator);
         }
     }
-};
 
-fn calculateFirstNumberToReturn(limit: ?i64, batch_size: ?i32) i32 {
-    const limit_val = limit orelse 0;
-    const batch_size_val = batch_size orelse 0;
+    pub fn make(
+        allocator: std.mem.Allocator,
+        collection_name: []const u8,
+        db_name: []const u8,
+        filter: anytype,
+        limit: LimitNumbered,
+        options: FindOptions,
+    ) !FindCommand {
+        const batch_size = switch (limit) {
+            .all => options.batchSize orelse null,
+            .one => 1,
+            .n => |n| @as(i32, @intCast(@min(options.batchSize orelse std.math.maxInt(i32), n +| 1))),
+        };
 
-    if (limit_val < 0) {
-        return @intCast(limit_val);
-    } else if (limit_val == 0) {
-        return batch_size_val;
-    } else if (batch_size_val == 0) {
-        return @intCast(limit_val);
-    } else if (limit_val < batch_size_val) {
-        return @intCast(limit_val);
-    } else {
-        return batch_size_val;
+        const single_batch = switch (limit) {
+            .all => null,
+            .one => true,
+            .n => |num| num < 0,
+        };
+
+        const filter_parsed = try bson.BsonDocument.fromObject(allocator, @TypeOf(filter), filter);
+        errdefer filter_parsed.deinit(allocator);
+
+        var command: FindCommand = .{
+            .find = collection_name,
+            .@"$db" = db_name,
+            .filter = filter_parsed,
+            .batchSize = batch_size,
+            .singleBatch = single_batch,
+            .limit = switch (limit) {
+                .all => null,
+                .one => 1,
+                .n => |num| @as(i64, @intCast(@abs(num))),
+            },
+        };
+        options.addToCommand(&command);
+
+        return command;
     }
-}
+
+    pub fn makeFindOne(
+        allocator: std.mem.Allocator,
+        collection_name: []const u8,
+        db_name: []const u8,
+        filter: anytype,
+        options: FindOptions,
+    ) !FindCommand {
+        const filter_parsed = try bson.BsonDocument.fromObject(allocator, @TypeOf(filter), filter);
+        errdefer filter_parsed.deinit(allocator);
+
+        var command: FindCommand = .{
+            .find = collection_name,
+            .@"$db" = db_name,
+            .filter = filter_parsed,
+            .limit = 1,
+        };
+        options.addToCommand(&command);
+
+        return command;
+    }
+};
 
 pub const FindCommandResponse = struct {
     ok: f64,
@@ -285,7 +264,7 @@ pub const FindOptions = struct {
     // /// @since MongoDB 8.2
     // rawData: ?bool = null,
 
-    fn addToCommand(self: *const FindOptions, command_data: *FindCommand) void {
+    pub fn addToCommand(self: *const FindOptions, command_data: *FindCommand) void {
         if (self.run_command_options) |run_command_options| run_command_options.addToCommand(command_data);
 
         if (self.allowDiskUse) |allowDiskUse| command_data.allowDiskUse = allowDiskUse;

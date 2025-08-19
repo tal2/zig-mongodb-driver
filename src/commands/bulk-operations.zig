@@ -77,8 +77,8 @@ const NamespaceDoc = struct { ns: []const u8 };
 pub const BulkWriteOpsChainable = struct {
     collection: *const Collection,
     operations: ArrayList(*const BsonDocument),
-    ns_info_map: std.StringHashMap(u32),
-    arena: std.heap.ArenaAllocator,
+    ns_info_map: StringHashMap(u32),
+    arena: ArenaAllocator,
 
     selected_namespace_index: ?u32 = null,
 
@@ -88,8 +88,8 @@ pub const BulkWriteOpsChainable = struct {
         return .{
             .collection = collection,
             .operations = ArrayList(*const BsonDocument).init(collection.allocator),
-            .ns_info_map = std.StringHashMap(u32).init(collection.allocator),
-            .arena = std.heap.ArenaAllocator.init(collection.allocator),
+            .ns_info_map = StringHashMap(u32).init(collection.allocator),
+            .arena = ArenaAllocator.init(collection.allocator),
         };
     }
 

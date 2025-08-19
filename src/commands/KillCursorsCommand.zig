@@ -1,6 +1,5 @@
 const std = @import("std");
 const bson = @import("bson");
-const utils = @import("../utils.zig");
 const opcode = @import("../protocol/opcode.zig");
 const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
 const Comment = @import("../protocol/comment.zig").Comment;

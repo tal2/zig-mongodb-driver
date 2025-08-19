@@ -2,7 +2,6 @@ const std = @import("std");
 const bson = @import("bson");
 const Collection = @import("../Collection.zig").Collection;
 const FindCommandResponse = @import("./FindCommand.zig").FindCommandResponse;
-const FindOptions = @import("./FindCommand.zig").FindOptions;
 const commands = @import("./root.zig");
 const CursorInfo = @import("./CursorInfo.zig").CursorInfo;
 
@@ -20,7 +19,7 @@ pub const CursorIterator = struct {
 
     count: usize = 0,
 
-    pub fn init(allocator: std.mem.Allocator, collection: *const Collection, cursor: *CursorInfo, options: FindOptions) !CursorIterator {
+    pub fn init(allocator: std.mem.Allocator, collection: *const Collection, cursor: *CursorInfo, batch_size: ?i32) !CursorIterator {
         const first_batch_size = cursor.firstBatch.?.len;
         var buffer = try std.ArrayList(*BsonDocument).initCapacity(allocator, first_batch_size);
         errdefer buffer.deinit();
@@ -40,7 +39,7 @@ pub const CursorIterator = struct {
             .collection = collection,
             .cursor_id = cursor.id,
             .buffer = buffer,
-            .batch_size = options.batchSize,
+            .batch_size = batch_size,
             // .limit = options.limit,
         };
     }

@@ -1,10 +1,7 @@
 const std = @import("std");
 const bson = @import("bson");
-const utils = @import("../utils.zig");
-const opcode = @import("../protocol/opcode.zig");
 
 const CursorInfo = @import("./CursorInfo.zig").CursorInfo;
-const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
 const commands = @import("./root.zig");
 const FindOptions = commands.FindOptions;
 const Hint = @import("../protocol/hint.zig").Hint;
@@ -13,79 +10,9 @@ const Comment = @import("../protocol/comment.zig").Comment;
 const Allocator = std.mem.Allocator;
 const BsonDocument = bson.BsonDocument;
 
-pub fn makeAggregateCommand(
-    allocator: std.mem.Allocator,
-    collection_name: []const u8,
-    pipeline: anytype,
-    options: FindOptions,
-    cursor_options: CursorOptions,
-    max_wire_version: ?i32,
-    db_name: []const u8,
-    server_api: ServerApi,
-) !*opcode.OpMsg {
-    _ = max_wire_version;
-
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const arena_allocator = arena.allocator();
-
-    comptime {
-        const pipeline_type_info = @typeInfo(@TypeOf(pipeline));
-        if (pipeline_type_info != .array and (pipeline_type_info != .pointer or pipeline_type_info.pointer.size != .slice)) {
-            @compileLog(pipeline_type_info);
-            @compileLog(@tagName(pipeline_type_info));
-            @compileError("pipeline must be an array or a pointer to an array");
-        }
-    }
-
-    var pipeline_parsed = std.ArrayList(*bson.BsonDocument).init(arena_allocator);
-
-    for (pipeline) |stage| {
-        if (@TypeOf(stage) == *bson.BsonDocument) {
-            try pipeline_parsed.append(stage);
-        } else {
-            const stage_parsed = try bson.BsonDocument.fromObject(arena_allocator, @TypeOf(stage), stage);
-            try pipeline_parsed.append(stage_parsed);
-        }
-    }
-
-    const cursor_parsed = try bson.BsonDocument.fromObject(arena_allocator, CursorOptions, cursor_options);
-
-    var command = AggregateCommand{
-        .aggregate = collection_name,
-        .@"$db" = db_name,
-        .pipeline = try pipeline_parsed.toOwnedSlice(),
-        .allowDiskUse = options.allowDiskUse,
-        .batchSize = options.batchSize,
-        // .bypassDocumentValidation = options.bypassDocumentValidation,
-        // .readConcern = options.readConcern,
-        .collation = options.collation,
-        // .comment = options.comment,
-        // .writeConcern = options.writeConcern,
-        .maxTimeMS = options.maxTimeMS,
-        .let = options.let,
-        .cursor = cursor_parsed,
-    };
-    server_api.addToCommand(&command);
-    if (options.run_command_options) |run_command_options| run_command_options.addToCommand(&command);
-
-    const command_document = try bson.BsonDocument.fromObject(allocator, @TypeOf(command), command);
-    errdefer command_document.deinit(allocator);
-
-    return try opcode.OpMsg.init(allocator, command_document, 2, 0, .{});
-}
 
 pub const AggregateCommand = struct {
     pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
-
-    pub fn deinit(self: *const AggregateCommand, allocator: std.mem.Allocator) void {
-        for (self.pipeline) |stage| {
-            stage.deinit(allocator);
-        }
-        allocator.free(self.pipeline);
-        self.cursor.deinit(allocator);
-        allocator.destroy(self);
-    }
 
     aggregate: []const u8, // TODO: make union of string and i32
 
@@ -124,6 +51,57 @@ pub const AggregateCommand = struct {
 
     readPreference: ?[]const u8 = null,
     timeoutMS: ?i64 = null,
+
+    pub fn deinit(self: *const AggregateCommand, allocator: std.mem.Allocator) void {
+        for (self.pipeline) |stage| {
+            stage.deinit(allocator);
+        }
+        allocator.free(self.pipeline);
+        self.cursor.deinit(allocator);
+        allocator.destroy(self);
+    }
+
+    pub fn make(
+        allocator: std.mem.Allocator,
+        collection_name: []const u8,
+        db_name: []const u8,
+        pipeline: anytype,
+        options: AggregateOptions,
+        cursor_options: CursorOptions,
+    ) !AggregateCommand {
+        comptime {
+            const pipeline_type_info = @typeInfo(@TypeOf(pipeline));
+            if (pipeline_type_info != .array and (pipeline_type_info != .pointer or pipeline_type_info.pointer.size != .slice)) {
+                @compileLog(pipeline_type_info);
+                @compileLog(@tagName(pipeline_type_info));
+                @compileError("pipeline must be an array or a pointer to an array");
+            }
+        }
+
+        var pipeline_parsed = try std.ArrayList(*bson.BsonDocument).initCapacity(allocator, pipeline.len);
+
+        for (pipeline) |stage| {
+            if (@TypeOf(stage) == *bson.BsonDocument) {
+                pipeline_parsed.appendAssumeCapacity(stage);
+            } else {
+                const stage_parsed = try bson.BsonDocument.fromObject(allocator, @TypeOf(stage), stage);
+                pipeline_parsed.appendAssumeCapacity(stage_parsed);
+            }
+        }
+
+        const cursor_parsed = try bson.BsonDocument.fromObject(allocator, CursorOptions, cursor_options);
+
+        var command = AggregateCommand{
+            .aggregate = collection_name,
+            .@"$db" = db_name,
+            .pipeline = try pipeline_parsed.toOwnedSlice(),
+            .cursor = cursor_parsed,
+        };
+
+        options.addToCommand(&command);
+
+        return command;
+    }
 };
 
 pub const CursorOptions = struct {
@@ -157,7 +135,7 @@ pub const AggregateCommandResponse = struct {
     }
 
     pub fn parseBson(allocator: Allocator, document: *const BsonDocument) !*AggregateCommandResponse {
-        return try utils.parseBsonToOwned(AggregateCommandResponse, allocator, document);
+        return try document.toObject(allocator, AggregateCommandResponse, .{ .ignore_unknown_fields = true });
     }
 };
 
@@ -184,4 +162,17 @@ pub const AggregateOptions = struct {
     writeConcern: ?bson.BsonDocument = null,
 
     let: ?bson.BsonDocument = null,
+
+    pub fn addToCommand(self: *const AggregateOptions, command: *AggregateCommand) void {
+        command.allowDiskUse = self.allowDiskUse;
+        command.batchSize = self.batchSize;
+        command.bypassDocumentValidation = self.bypassDocumentValidation;
+        command.readConcern = self.readConcern;
+        command.collation = self.collation;
+        command.comment = self.comment;
+        command.hint = self.hint;
+        command.writeConcern = self.writeConcern;
+        command.maxTimeMS = self.maxTimeMS;
+        command.let = self.let;
+    }
 };

@@ -29,12 +29,10 @@ const UpdateCommandResponse = update_commands.UpdateCommandResponse;
 const Limit = commands.command_types.Limit;
 const LimitNumbered = commands.command_types.LimitNumbered;
 const FindOptions = commands.FindOptions;
-const FindOneOptions = commands.FindOneOptions;
 const InsertOneOptions = insert_commands.InsertOneOptions;
 const InsertManyOptions = insert_commands.InsertManyOptions;
 const DeleteOptions = delete_commands.DeleteOptions;
 const ReplaceOptions = replace_commands.ReplaceOptions;
-const UpdateOptions = update_commands.UpdateOptions;
 const CursorIterator = commands.CursorIterator;
 const AggregateOptions = commands.AggregateOptions;
 const CursorOptions = commands.CursorOptions;
@@ -45,6 +43,8 @@ const ResponseWithWriteErrors = commands.ResponseWithWriteErrors;
 const BulkWriteOps = @import("commands/bulk-operations.zig").BulkWriteOps;
 const BulkWriteResponse = @import("commands/bulk-operations.zig").BulkWriteResponse;
 const BulkWriteOpsChainable = @import("commands/bulk-operations.zig").BulkWriteOpsChainable;
+const WriteResponseUnion = @import("ResponseUnion.zig").WriteResponseUnion;
+const ResponseUnion = @import("ResponseUnion.zig").ResponseUnion;
 
 pub const Collection = struct {
     database: *Database,
@@ -66,11 +66,7 @@ pub const Collection = struct {
     //     self.allocator.destroy(self);
     // }
 
-    pub fn insertMany(self: *const Collection, docs: anytype, options: InsertManyOptions) !union(enum) {
-        response: *const InsertCommandResponse,
-        write_errors: *ResponseWithWriteErrors,
-        err: *ErrorResponse,
-    } {
+    pub fn insertMany(self: *const Collection, docs: anytype, options: InsertManyOptions) !WriteResponseUnion(InsertCommandResponse, ErrorResponse, ResponseWithWriteErrors) {
         comptime {
             const documents_type_info = @typeInfo(@TypeOf(docs));
             if (documents_type_info != .array and (documents_type_info != .pointer or @typeInfo(documents_type_info.pointer.child) != .array)) {
@@ -78,70 +74,54 @@ pub const Collection = struct {
             }
         }
 
-        const command_insert = try insert_commands.makeInsertMany(self.allocator, self.collection_name, docs, options, null, self.database.db_name, self.server_api);
-        defer command_insert.deinit(self.allocator);
+        var arena = ArenaAllocator.init(self.allocator);
+        defer arena.deinit();
+        const arena_allocator = arena.allocator();
 
-        const result = try self.runWriteCommandOpcode(command_insert, InsertCommandResponse, ResponseWithWriteErrors);
-        return switch (result) {
-            .response => |response| .{ .response = response },
-            .write_errors => |write_errors| .{ .write_errors = write_errors },
-            .err => |err| .{ .err = err },
-        };
+        var command_insert = try insert_commands.InsertCommand.makeInsertMany(arena_allocator, self.collection_name, self.database.db_name, docs, options);
+
+        return try self.runWriteCommand(&command_insert, options, InsertCommandResponse, ResponseWithWriteErrors);
     }
 
-    pub fn insertOne(self: *const Collection, doc: anytype, options: InsertOneOptions) !union(enum) {
-        response: *const InsertCommandResponse,
-        write_errors: *ResponseWithWriteErrors,
-        err: *ErrorResponse,
-    } {
+    pub fn insertOne(self: *const Collection, doc: anytype, options: InsertOneOptions) !WriteResponseUnion(InsertCommandResponse, ErrorResponse, ResponseWithWriteErrors) {
         comptime {
             const documents_type_info = @typeInfo(@TypeOf(doc));
             if (documents_type_info == .array or (documents_type_info == .pointer and @typeInfo(documents_type_info.pointer.child) == .array)) {
                 @compileError("insertOne does not support arrays");
             }
         }
-        const command_insert = try insert_commands.makeInsertOne(self.allocator, self.collection_name, doc, options, null, self.database.db_name, self.server_api);
+        var command_insert = try insert_commands.InsertCommand.makeInsertOne(self.allocator, self.collection_name, self.database.db_name, doc, options);
         defer command_insert.deinit(self.allocator);
 
-        const result = try self.runWriteCommandOpcode(command_insert, InsertCommandResponse, ResponseWithWriteErrors);
-        return switch (result) {
-            .response => |response| .{ .response = response },
-            .write_errors => |write_errors| .{ .write_errors = write_errors },
-            .err => |err| .{ .err = err },
-        };
+        return try self.runWriteCommand(&command_insert, options, InsertCommandResponse, ResponseWithWriteErrors);
     }
 
     pub fn find(self: *const Collection, filter: anytype, limit: LimitNumbered, options: FindOptions) !union(enum) {
         cursor: CursorIterator,
         err: *ErrorResponse,
     } {
-        const command = try commands.makeFindCommand(self.allocator, self.collection_name, // collection name
-            filter, limit, options,
-            // server version unknown
-            null, self.database.db_name, self.server_api);
+        var command = try commands.FindCommand.make(self.allocator, self.collection_name, self.database.db_name, filter, limit, options);
         defer command.deinit(self.allocator);
 
-        const result = try self.runCommandOpcode(command, FindCommandResponse);
+        const result = try self.runCommand(&command, options, FindCommandResponse);
         return switch (result) {
             .response => |response| {
                 defer response.deinit(self.allocator);
-                return .{ .cursor = try CursorIterator.init(self.allocator, self, response.cursor, options) };
+                return .{ .cursor = try CursorIterator.init(self.allocator, self, response.cursor, options.batchSize) };
             },
             .err => |err| .{ .err = err },
         };
     }
 
-    pub fn findOne(self: *const Collection, filter: anytype, options: FindOneOptions) !union(enum) {
+    pub fn findOne(self: *const Collection, filter: anytype, options: FindOptions) !union(enum) {
         document: *BsonDocument,
         err: *ErrorResponse,
         null,
     } {
-        const command = try commands.makeFindOneCommand(self.allocator, self.collection_name, filter, options,
-            // server version unknown
-            null, self.database.db_name, self.server_api);
+        var command = try commands.FindCommand.makeFindOne(self.allocator, self.collection_name, self.database.db_name, filter, options);
         defer command.deinit(self.allocator);
 
-        const result = try self.runCommandOpcode(command, FindCommandResponse);
+        const result = try self.runCommand(&command, options, FindCommandResponse);
         return switch (result) {
             .response => |response| {
                 defer response.deinit(self.allocator);
@@ -155,96 +135,68 @@ pub const Collection = struct {
         };
     }
 
-    pub fn delete(self: *const Collection, limit: Limit, filter: anytype, options: DeleteOptions) !union(enum) {
-        response: *DeleteCommandResponse,
-        write_errors: *ResponseWithWriteErrors,
-        err: *ErrorResponse,
-    } {
-        const command_delete = try delete_commands.makeDeleteCommand(self.allocator, self.collection_name, filter, limit, options, null, self.database.db_name, self.server_api);
+    pub fn deleteOne(self: *const Collection, filter: anytype, options: DeleteOptions) !WriteResponseUnion(DeleteCommandResponse, ErrorResponse, ResponseWithWriteErrors) {
+        var command_delete = try delete_commands.DeleteCommand.makeDeleteOne(self.allocator, self.database.db_name, self.collection_name, filter, options);
         defer command_delete.deinit(self.allocator);
 
-        const result = try self.runWriteCommandOpcode(command_delete, DeleteCommandResponse, ResponseWithWriteErrors);
-        return switch (result) {
-            .response => |response| .{ .response = response },
-            .write_errors => |write_errors| .{ .write_errors = write_errors },
-            .err => |err| .{ .err = err },
-        };
+        return try self.runWriteCommand(&command_delete, options, DeleteCommandResponse, ResponseWithWriteErrors);
     }
 
-    pub fn replaceOne(self: *const Collection, filter: anytype, replacement: anytype, options: ReplaceOptions) !union(enum) {
-        response: *ReplaceCommandResponse,
-        write_errors: *ResponseWithWriteErrors,
-        err: *ErrorResponse,
-    } {
-        const command_replace = try commands.makeReplaceCommand(self.allocator, self.collection_name, filter, replacement, options, null, self.database.db_name, self.server_api);
+    pub fn deleteMany(self: *const Collection, filter: anytype, options: DeleteOptions) !WriteResponseUnion(DeleteCommandResponse, ErrorResponse, ResponseWithWriteErrors) {
+        var command_delete = try delete_commands.DeleteCommand.makeDeleteMany(self.allocator, self.database.db_name, self.collection_name, filter, options);
+        defer command_delete.deinit(self.allocator);
+
+        return try self.runWriteCommand(&command_delete, options, DeleteCommandResponse, ResponseWithWriteErrors);
+    }
+
+    pub fn replaceOne(self: *const Collection, filter: anytype, replacement: anytype, options: ReplaceOptions) !WriteResponseUnion(ReplaceCommandResponse, ErrorResponse, ResponseWithWriteErrors) {
+        var command_replace = try replace_commands.ReplaceCommand.makeReplaceOne(self.allocator, self.database.db_name, self.collection_name, filter, replacement, options);
         defer command_replace.deinit(self.allocator);
 
-        const result = try self.runWriteCommandOpcode(command_replace, ReplaceCommandResponse, ResponseWithWriteErrors);
-        return switch (result) {
-            .response => |response| .{ .response = response },
-            .write_errors => |write_errors| .{ .write_errors = write_errors },
-            .err => |err| .{ .err = err },
-        };
+        return try self.runWriteCommand(&command_replace, options, ReplaceCommandResponse, ResponseWithWriteErrors);
     }
 
-    pub fn updateOne(self: *const Collection, filter: anytype, update: anytype, options: UpdateOptions) !union(enum) {
-        response: *UpdateCommandResponse,
-        write_errors: *ResponseWithWriteErrors,
-        err: *ErrorResponse,
-    } {
-        const command_update = try commands.makeUpdateOneCommand(self.allocator, self.collection_name, filter, update, options, null, self.database.db_name, self.server_api);
-
+    pub fn updateOne(self: *const Collection, filter: anytype, update: anytype, options: update_commands.UpdateOneOptions) !WriteResponseUnion(UpdateCommandResponse, ErrorResponse, ResponseWithWriteErrors) {
+        var command_update = try UpdateCommand.makeUpdateOne(self.allocator, self.collection_name, self.database.db_name, filter, update, options);
         defer command_update.deinit(self.allocator);
 
-        const result = try self.runWriteCommandOpcode(command_update, UpdateCommandResponse, ResponseWithWriteErrors);
-        return switch (result) {
-            .response => |response| .{ .response = response },
-            .write_errors => |write_errors| .{ .write_errors = write_errors },
-            .err => |err| .{ .err = err },
-        };
+        return try self.runWriteCommand(&command_update, options, UpdateCommandResponse, ResponseWithWriteErrors);
     }
 
-    pub fn updateMany(self: *const Collection, filter: anytype, update: anytype, options: UpdateOptions) !union(enum) {
-        response: *UpdateCommandResponse,
-        write_errors: *ResponseWithWriteErrors,
-        err: *ErrorResponse,
-    } {
-        const command_update = try commands.makeUpdateManyCommand(self.allocator, self.collection_name, filter, update, options, null, self.database.db_name, self.server_api);
+    pub fn updateMany(self: *const Collection, filter: anytype, update: anytype, options: update_commands.UpdateManyOptions) !WriteResponseUnion(UpdateCommandResponse, ErrorResponse, ResponseWithWriteErrors) {
+        var command_update = try UpdateCommand.makeUpdateMany(self.allocator, self.collection_name, self.database.db_name, filter, update, options);
         defer command_update.deinit(self.allocator);
 
-        const result = try self.runWriteCommandOpcode(command_update, UpdateCommandResponse, ResponseWithWriteErrors);
-        return switch (result) {
-            .response => |response| .{ .response = response },
-            .write_errors => |write_errors| .{ .write_errors = write_errors },
-            .err => |err| .{ .err = err },
-        };
+        return try self.runWriteCommand(&command_update, options, UpdateCommandResponse, ResponseWithWriteErrors);
     }
 
     pub fn updateChain(self: *const Collection) UpdateCommandChainable {
         return UpdateCommandChainable.init(self);
     }
 
-
-    pub fn aggregate(self: *const Collection, pipeline: anytype, options: FindOptions, cursor_options: CursorOptions) !union(enum) {
+    pub fn aggregate(self: *const Collection, pipeline: anytype, options: AggregateOptions, cursor_options: CursorOptions) !union(enum) {
         cursor: CursorIterator,
         err: *ErrorResponse,
     } {
-        const command = try commands.makeAggregateCommand(self.allocator, self.collection_name, pipeline, options, cursor_options, null, self.database.db_name, self.server_api);
-        defer command.deinit(self.allocator);
+        var arena = ArenaAllocator.init(self.allocator);
+        defer arena.deinit();
+        const arena_allocator = arena.allocator();
+
+        var command = try commands.AggregateCommand.make(arena_allocator, self.collection_name, self.database.db_name, pipeline, options, cursor_options);
 
 
 
 
-        return switch (try self.runCommandOpcode(command, FindCommandResponse)) {
+        return switch (try self.runCommand(&command, options, FindCommandResponse)) {
             .response => |response| {
                 defer response.deinit(self.allocator);
-                return .{ .cursor = try CursorIterator.init(self.allocator, self, response.cursor, options) };
+                return .{ .cursor = try CursorIterator.init(self.allocator, self, response.cursor, options.batchSize) };
             },
             .err => |err| .{ .err = err },
         };
     }
 
-    pub fn countDocuments(self: *const Collection, filter: anytype, options: FindOptions) !i64 {
+    pub fn countDocuments(self: *const Collection, filter: anytype, options: AggregateOptions) !i64 {
         var arena = ArenaAllocator.init(self.allocator);
         defer arena.deinit();
         const arena_allocator = arena.allocator();
@@ -252,8 +204,15 @@ pub const Collection = struct {
         var pb = commands.PipelineBuilder.init(arena_allocator);
         const pipeline = try pb.match(filter).group(.{ ._id = 1, .n = .{ .@"$sum" = 1 } }).build();
 
-        const command = try commands.makeAggregateCommand(arena_allocator, self.collection_name, pipeline, options, .{}, null, self.database.db_name, self.server_api);
-        const response = try self.database.stream.send(arena_allocator, command);
+        const command = try commands.AggregateCommand.make(arena_allocator, self.collection_name, self.database.db_name, pipeline, options, .{});
+
+        const command_serialized = try BsonDocument.fromObject(arena_allocator, @TypeOf(command), command);
+        errdefer command_serialized.deinit(arena_allocator);
+
+        const command_op_msg = try opcode.OpMsg.init(arena_allocator, command_serialized, 1, 0, .{});
+        defer command_op_msg.deinit(arena_allocator);
+
+        const response = try self.database.stream.send(arena_allocator, command_op_msg);
         const aggregate_command_response = try FindCommandResponse.parseBson(arena_allocator, response.section_document.document);
 
         const SumResponse = struct {
@@ -289,12 +248,40 @@ pub const Collection = struct {
         return kill_cursor_response;
     }
 
+    pub fn runWriteCommand(self: *const Collection, command: anytype, options: anytype, comptime ResponseType: type, comptime ResponseErrorType: type) !WriteResponseUnion(ResponseType, ErrorResponse, ResponseErrorType) {
+        comptime {
+            const command_type_info = @typeInfo(@TypeOf(command));
+            if (command_type_info != .pointer) {
+                @compileError("runCommand command param must be a pointer to a struct");
+            }
+            if (!@hasField(@TypeOf(command.*), "$db")) {
+                @compileError("runCommand command param must have a @$db field");
+            }
+            if (!@hasDecl(ResponseType, "parseBson")) {
+                @compileError("runCommand command param type must have a parseBson method");
+            }
+            if (@typeInfo(@TypeOf(options)) != .null and !@hasDecl(@TypeOf(options), "addToCommand")) {
+                @compileError("runCommand options param must have an addToCommand method");
+            }
+        }
 
-    pub fn runWriteCommandOpcode(self: *const Collection, command_op_msg: *const opcode.OpMsg, comptime ResponseType: type, comptime ResponseErrorType: type) !union(enum) {
-        response: *ResponseType,
-        write_errors: *ResponseErrorType,
-        err: *ErrorResponse,
-    } {
+        command.*.@"$db" = self.database.db_name;
+        if (comptime @typeInfo(@TypeOf(options)) != .null) {
+            options.addToCommand(command);
+        }
+
+        self.server_api.addToCommand(command);
+
+        const command_serialized = try BsonDocument.fromObject(self.allocator, @TypeOf(command), command);
+        errdefer command_serialized.deinit(self.allocator);
+
+        const command_op_msg = try opcode.OpMsg.init(self.allocator, command_serialized, 1, 0, .{});
+        defer command_op_msg.deinit(self.allocator);
+
+        return try self.runWriteCommandOpcode(command_op_msg, ResponseType, ResponseErrorType);
+    }
+
+    pub fn runWriteCommandOpcode(self: *const Collection, command_op_msg: *const opcode.OpMsg, comptime ResponseType: type, comptime ResponseErrorType: type) !WriteResponseUnion(ResponseType, ErrorResponse, ResponseErrorType) {
         const response = try self.database.stream.send(self.allocator, command_op_msg);
         defer response.deinit(self.allocator);
 
@@ -313,10 +300,7 @@ pub const Collection = struct {
         return .{ .response = try ResponseType.parseBson(self.allocator, response.section_document.document) };
     }
 
-    pub fn runCommandOpcode(self: *const Collection, command_op_msg: *opcode.OpMsg, comptime ResponseType: type) !union(enum) {
-        response: *ResponseType,
-        err: *ErrorResponse,
-    } {
+    pub fn runCommandOpcode(self: *const Collection, command_op_msg: *opcode.OpMsg, comptime ResponseType: type) !ResponseUnion(ResponseType, ErrorResponse) {
         const response = try self.database.stream.send(self.allocator, command_op_msg);
         defer response.deinit(self.allocator);
 
@@ -329,10 +313,7 @@ pub const Collection = struct {
         return .{ .response = try ResponseType.parseBson(self.allocator, response.section_document.document) };
     }
 
-    pub fn runCommand(self: *const Collection, command: anytype, options: anytype, comptime ResponseType: type) !union(enum) {
-        response: *ResponseType,
-        err: *ErrorResponse,
-    } {
+    pub fn runCommand(self: *const Collection, command: anytype, options: anytype, comptime ResponseType: type) !ResponseUnion(ResponseType, ErrorResponse) {
         comptime {
             const command_type_info = @typeInfo(@TypeOf(command));
             if (command_type_info != .pointer) {

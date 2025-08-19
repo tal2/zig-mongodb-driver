@@ -1,6 +1,5 @@
 const std = @import("std");
 const bson = @import("bson");
-const utils = @import("../utils.zig");
 const opcode = @import("../protocol/opcode.zig");
 const CursorInfo = @import("CursorInfo.zig").CursorInfo;
 const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
@@ -89,7 +88,8 @@ pub const GetMoreCommandResponse = struct {
         return clone;
     }
 
-    pub fn parseBson(allocator: std.mem.Allocator, bson_document: *const BsonDocument) !*GetMoreCommandResponse {
-        return try utils.parseBsonToOwned(GetMoreCommandResponse, allocator, bson_document);
+    pub fn parseBson(allocator: std.mem.Allocator, document: *const BsonDocument) !*GetMoreCommandResponse {
+        // return try utils.parseBsonToOwned(GetMoreCommandResponse, allocator, bson_document);
+        return try document.toObject(allocator, GetMoreCommandResponse, .{ .ignore_unknown_fields = true });
     }
 };

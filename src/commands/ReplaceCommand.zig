@@ -1,11 +1,8 @@
 const std = @import("std");
 const bson = @import("bson");
-const utils = @import("../utils.zig");
-const opcode = @import("../protocol/opcode.zig");
 
 const Allocator = std.mem.Allocator;
 const BsonDocument = bson.BsonDocument;
-const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
 const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
 const Collation = @import("./Collation.zig").Collation;
 const Hint = @import("../protocol/hint.zig").Hint;
@@ -13,49 +10,9 @@ const Comment = @import("../protocol/comment.zig").Comment;
 
 pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
 
-pub fn makeReplaceCommand(
-    allocator: std.mem.Allocator,
-    collection_name: []const u8,
-    filter: anytype,
-    replacement: anytype,
-    options: ReplaceOptions,
-    max_wire_version: ?i32, // maxWireVersion from handshake
-    db_name: []const u8,
-    server_api: ServerApi,
-) !*opcode.OpMsg {
-    _ = max_wire_version;
-    var filter_parsed = try BsonDocument.fromObject(allocator, @TypeOf(filter), filter);
-    defer filter_parsed.deinit(allocator);
-
-    var replacement_parsed = try BsonDocument.fromObject(allocator, @TypeOf(replacement), replacement);
-    defer replacement_parsed.deinit(allocator);
-
-    var command_data: ReplaceCommand = .{
-        .update = collection_name,
-        .updates = &[_]ReplaceStatement{ReplaceStatement{
-            .q = filter_parsed.*,
-            .u = replacement_parsed.*,
-            .multi = false,
-            .upsert = options.upsert,
-        }},
-        .@"$db" = db_name,
-        // .ordered = true,
-        // .writeConcern = null,
-        .let = options.let,
-        // .maxTimeMS = null,
-    };
-    server_api.addToCommand(&command_data);
-    if (options.run_command_options) |run_command_options| run_command_options.addToCommand(&command_data);
-
-    var command = try BsonDocument.fromObject(allocator, @TypeOf(command_data), command_data);
-    errdefer command.deinit(allocator);
-
-    const result = try opcode.OpMsg.init(allocator, command, 1, 0, .{});
-    return result;
-}
 
 /// @see https://www.mongodb.com/docs/manual/reference/command/update/
-const ReplaceCommand = struct {
+pub const ReplaceCommand = struct {
     pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
 
     update: []const u8,
@@ -75,7 +32,7 @@ const ReplaceCommand = struct {
 
     maxTimeMS: ?i64 = null,
 
-    ordered: ?bool = null,
+    sort: ?bson.BsonDocument = null,
 
     // Must be value of ServerApiVersion.value()
     apiVersion: ?[]const u8 = null,
@@ -86,16 +43,53 @@ const ReplaceCommand = struct {
     readPreference: ?[]const u8 = null,
     timeoutMS: ?i64 = null,
     // session: ?ClientSession = null,
+
+    pub fn deinit(self: *const ReplaceCommand, allocator: Allocator) void {
+        for (self.updates) |update| {
+            update.q.deinit(allocator);
+            update.u.deinit(allocator);
+        }
+        allocator.free(self.updates);
+    }
+
+    pub fn makeReplaceOne(
+        allocator: std.mem.Allocator,
+        collection_name: []const u8,
+        db_name: []const u8,
+        filter: anytype,
+        replacement: anytype,
+        options: ReplaceOptions,
+    ) !ReplaceCommand {
+        const filter_parsed = try BsonDocument.fromObject(allocator, @TypeOf(filter), filter);
+        const replacement_parsed = try BsonDocument.fromObject(allocator, @TypeOf(replacement), replacement);
+
+        const updates = try allocator.alloc(ReplaceStatement, 1);
+        updates[0] = ReplaceStatement{
+            .q = filter_parsed,
+            .u = replacement_parsed,
+            .multi = false,
+            .upsert = options.upsert,
+        };
+
+        var command: ReplaceCommand = .{
+            .update = collection_name,
+            .updates = updates,
+            .@"$db" = db_name,
+        };
+        options.addToCommand(&command);
+
+        return command;
+    }
 };
 
 pub const ReplaceStatement = struct {
     pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
 
     /// The query that matches documents to update.
-    q: BsonDocument,
+    q: *BsonDocument,
 
     /// The update document or pipeline that specifies the modifications to apply.
-    u: BsonDocument,
+    u: *BsonDocument, // TODO: add support for pipelines
 
     multi: bool,
 
@@ -195,7 +189,7 @@ pub const ReplaceOptions = struct {
 
     bypass_document_validation: ?bool = null,
 
-    collation: ?bson.BsonDocument = null,
+    collation: ?Collation = null,
 
     hint: ?Hint = null,
 
@@ -209,4 +203,12 @@ pub const ReplaceOptions = struct {
 
     // /// @since MongoDB 8.2
     // raw_data: ?bool = null,
+
+    pub fn addToCommand(self: *const ReplaceOptions, command: *ReplaceCommand) void {
+        command.collation = self.collation;
+        command.hint = self.hint;
+        command.let = self.let;
+        command.comment = self.comment;
+        command.sort = self.sort;
+    }
 };

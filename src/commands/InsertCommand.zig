@@ -1,11 +1,8 @@
 const std = @import("std");
 const bson = @import("bson");
-const utils = @import("../utils.zig");
-const opcode = @import("../protocol/opcode.zig");
 
 const WriteError = @import("WriteError.zig").WriteError;
 const WriteConcernError = @import("WriteConcernError.zig").WriteConcernError;
-const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
 const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
 const Comment = @import("../protocol/comment.zig").Comment;
 
@@ -13,40 +10,6 @@ const Allocator = std.mem.Allocator;
 const BsonDocument = bson.BsonDocument;
 
 pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
-
-pub fn makeInsertOne(
-    allocator: std.mem.Allocator,
-    collection_name: []const u8,
-    document: anytype,
-    options: InsertOneOptions,
-    server_version: ?i32, // maxWireVersion from handshake
-    db_name: []const u8,
-    server_api: ServerApi,
-) !*opcode.OpMsg {
-    _ = server_version;
-
-    var document_bson = try BsonDocument.fromObject(allocator, @TypeOf(document), document);
-    defer document_bson.deinit(allocator);
-
-    var documents_array = try allocator.alloc(*const BsonDocument, 1);
-    defer allocator.free(documents_array);
-    documents_array[0] = document_bson;
-
-    var command_data: InsertCommand = .{
-        .insert = collection_name,
-        .@"$db" = db_name,
-        .documents = documents_array,
-    };
-
-    server_api.addToCommand(&command_data);
-    if (options.run_command_options) |run_command_options| run_command_options.addToCommand(&command_data);
-
-    var command = try BsonDocument.fromObject(allocator, @TypeOf(command_data), command_data);
-    errdefer command.deinit(allocator);
-
-    const result = try opcode.OpMsg.init(allocator, command, 1, 0, .{});
-    return result;
-}
 
 pub const InsertOneOptions = struct {
     run_command_options: ?RunCommandOptions = null,
@@ -57,64 +20,15 @@ pub const InsertOneOptions = struct {
 
     // /// @since MongoDB 8.2
     // rawData: ?bool = null,
+
+    pub fn addToCommand(self: *const InsertOneOptions, command: *InsertCommand) void {
+        if (self.run_command_options) |run_command_options| run_command_options.addToCommand(command);
+
+        command.bypassDocumentValidation = self.bypassDocumentValidation;
+        command.comment = self.comment;
+    }
 };
 
-pub fn makeInsertMany(
-    allocator: std.mem.Allocator,
-    collection_name: []const u8,
-    documents: anytype,
-    options: InsertManyOptions,
-    server_version: ?i32, // maxWireVersion from handshake
-    db_name: []const u8,
-    server_api: ServerApi,
-) !*opcode.OpMsg {
-    _ = server_version;
-
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const arena_allocator = arena.allocator();
-
-    comptime {
-        const documents_type_info = @typeInfo(@TypeOf(documents));
-
-        if (documents_type_info != .array and (documents_type_info != .pointer or (@typeInfo(documents_type_info.pointer.child) != .array and documents_type_info.pointer.size != .slice))) {
-            @compileLog(documents_type_info);
-            @compileLog(@tagName(documents_type_info));
-            @compileError("documents arg must be an array or a pointer to an array");
-        }
-    }
-
-    if (documents.len == 0) {
-        return error.InvalidArgument; // Documents cannot be empty
-    }
-
-    var documents_parsed = std.ArrayList(*const bson.BsonDocument).init(arena_allocator);
-
-    for (documents) |document| {
-        if (@TypeOf(document) == *bson.BsonDocument) {
-            try documents_parsed.append(document);
-        } else {
-            const document_parsed = try bson.BsonDocument.fromObject(arena_allocator, @TypeOf(document), document);
-            errdefer document_parsed.deinit(arena_allocator);
-            try documents_parsed.append(document_parsed);
-        }
-    }
-
-    var command_data: InsertCommand = .{
-        .insert = collection_name,
-        .@"$db" = db_name,
-        .documents = try documents_parsed.toOwnedSlice(),
-    };
-
-    server_api.addToCommand(&command_data);
-    if (options.run_command_options) |run_command_options| run_command_options.addToCommand(&command_data);
-
-    const command = try BsonDocument.fromObject(allocator, @TypeOf(command_data), command_data);
-    errdefer command.deinit(allocator);
-
-    const result = try opcode.OpMsg.init(allocator, command, 1, 0, .{});
-    return result;
-}
 
 pub const InsertManyOptions = struct {
     run_command_options: ?RunCommandOptions = null,
@@ -126,9 +40,17 @@ pub const InsertManyOptions = struct {
 
     // /// @since MongoDB 8.2
     // raw_data: ?bool = null,
+
+    pub fn addToCommand(self: *const InsertManyOptions, command: *InsertCommand) void {
+        if (self.run_command_options) |run_command_options| run_command_options.addToCommand(command);
+
+        command.bypassDocumentValidation = self.bypass_document_validation;
+        command.ordered = self.ordered;
+        command.comment = self.comment;
+    }
 };
 
-const InsertCommand = struct {
+pub const InsertCommand = struct {
     pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
 
     insert: []const u8,
@@ -147,6 +69,68 @@ const InsertCommand = struct {
 
     readPreference: ?[]const u8 = null,
     timeoutMS: ?i64 = null,
+
+    pub fn deinit(self: *const InsertCommand, allocator: Allocator) void {
+        for (self.documents) |document| {
+            document.deinit(allocator);
+        }
+        allocator.free(self.documents);
+    }
+
+    pub fn makeInsertOne(
+        allocator: std.mem.Allocator,
+        collection_name: []const u8,
+        db_name: []const u8,
+        document: anytype,
+        options: InsertOneOptions,
+    ) !InsertCommand {
+        const document_parsed = try BsonDocument.fromObject(allocator, @TypeOf(document), document);
+        const documents = try allocator.alloc(*const BsonDocument, 1);
+        documents[0] = document_parsed;
+
+        var command: InsertCommand = .{
+            .insert = collection_name,
+            .documents = documents,
+            .@"$db" = db_name,
+        };
+        options.addToCommand(&command);
+
+        return command;
+    }
+
+    pub fn makeInsertMany(
+        allocator: std.mem.Allocator,
+        collection_name: []const u8,
+        db_name: []const u8,
+        documents: anytype,
+        options: InsertManyOptions,
+    ) !InsertCommand {
+        if (documents.len == 0) {
+            return error.InvalidArgument;
+        }
+
+        var documents_parsed = try std.ArrayList(*const bson.BsonDocument).initCapacity(allocator, documents.len);
+        errdefer documents_parsed.deinit();
+
+        for (documents) |document| {
+            if (@TypeOf(document) == *bson.BsonDocument) {
+                documents_parsed.appendAssumeCapacity(document);
+            } else {
+                const document_parsed = try bson.BsonDocument.fromObject(allocator, @TypeOf(document), document);
+                errdefer document_parsed.deinit(allocator);
+                documents_parsed.appendAssumeCapacity(document_parsed);
+            }
+        }
+
+        var command: InsertCommand = .{
+            .insert = collection_name,
+            .documents = try documents_parsed.toOwnedSlice(),
+            .@"$db" = db_name,
+        };
+        options.addToCommand(&command);
+
+        return command;
+    }
 };
 
 pub const InsertCommandResponse = struct {

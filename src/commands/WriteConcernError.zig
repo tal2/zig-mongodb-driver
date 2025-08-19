@@ -1,7 +1,7 @@
 const std = @import("std");
-const utils = @import("../utils.zig");
 const Allocator = std.mem.Allocator;
 const BsonDocument = @import("bson").BsonDocument;
+
 pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
 
 pub const WriteConcernError = struct {

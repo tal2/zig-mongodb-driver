@@ -1,158 +1,23 @@
 const std = @import("std");
 const bson = @import("bson");
-const utils = @import("../utils.zig");
-const opcode = @import("../protocol/opcode.zig");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const BsonDocument = bson.BsonDocument;
-const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
-const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
 const Collation = @import("./Collation.zig").Collation;
 const Collection = @import("../Collection.zig").Collection;
 const ErrorResponse = @import("./ErrorResponse.zig").ErrorResponse;
 const Hint = @import("../protocol/hint.zig").Hint;
 const Comment = @import("../protocol/comment.zig").Comment;
+const ResponseWithWriteErrors = @import("./WriteError.zig").ResponseWithWriteErrors;
+const WriteResponseUnion = @import("../ResponseUnion.zig").WriteResponseUnion;
 
 pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
 
-pub fn makeUpdateCommand(
-    allocator: std.mem.Allocator,
-    collection_name: []const u8,
-    update_statements: []const UpdateStatement,
-    options: UpdateOptions,
-    max_wire_version: ?i32, // maxWireVersion from handshake
-    db_name: []const u8,
-    server_api: ServerApi,
-) !*opcode.OpMsg {
-    _ = max_wire_version;
-
-    var command_data: UpdateCommand = .{
-        .update = collection_name,
-        .updates = update_statements,
-        .@"$db" = db_name,
-        .collation = options.collation,
-        .ordered = options.ordered,
-        .let = options.let,
-    };
-    server_api.addToCommand(&command_data);
-
-    var command = try BsonDocument.fromObject(allocator, @TypeOf(command_data), command_data);
-    errdefer command.deinit(allocator);
-
-    const result = try opcode.OpMsg.init(allocator, command, 1, 0, .{});
-    return result;
-}
-
-pub const UpdateStatementBuilder = struct {
-    allocator: std.mem.Allocator,
-    update_statements: ArrayList(UpdateStatement),
-
-    pub fn init(allocator: std.mem.Allocator) UpdateStatementBuilder {
-        return .{
-            .allocator = allocator,
-            .update_statements = ArrayList(UpdateStatement).init(allocator),
-        };
-    }
-
-    pub fn deinit(self: *UpdateStatementBuilder) void {
-        for (self.update_statements.items) |item| item.deinit(self.allocator);
-        self.update_statements.deinit();
-    }
-
-    pub fn toOwnedSlice(self: *UpdateStatementBuilder) Allocator.Error![]UpdateStatement {
-        return try self.update_statements.toOwnedSlice();
-    }
-    pub fn add(self: *UpdateStatementBuilder, filter: anytype, update: anytype, options: UpdateStatementOptions) !void {
-        var filter_parsed = try BsonDocument.fromObject(self.allocator, @TypeOf(filter), filter);
-        errdefer filter_parsed.deinit(self.allocator);
-
-        var update_parsed = try BsonDocument.fromObject(self.allocator, @TypeOf(update), update);
-        errdefer update_parsed.deinit(self.allocator);
-
-
-        const update_statement = UpdateStatement{
-            .q = filter_parsed,
-            .u = update_parsed, // TODO: add support for pipelines
-            .multi = options.multi,
-            .collation = options.collation,
-            .upsert = options.upsert,
-            .arrayFilters = options.array_filters,
-        };
-
-        try self.update_statements.append(update_statement);
-    }
-
-    pub fn build(self: *UpdateStatementBuilder) UpdateStatement {
-        return self.update_statements;
-    }
-};
-
-pub fn makeUpdateOneCommand(
-    allocator: std.mem.Allocator,
-    collection_name: []const u8,
-    filter: anytype,
-    update: anytype,
-    options: UpdateOptions,
-    max_wire_version: ?i32, // maxWireVersion from handshake
-    db_name: []const u8,
-    server_api: ServerApi,
-) !*opcode.OpMsg {
-    var filter_parsed = try BsonDocument.fromObject(allocator, @TypeOf(filter), filter);
-    defer filter_parsed.deinit(allocator);
-
-    var update_parsed = try BsonDocument.fromObject(allocator, @TypeOf(update), update);
-    defer update_parsed.deinit(allocator);
-
-    const update_statement = UpdateStatement{
-        .q = filter_parsed,
-        .u = update_parsed,
-        .multi = false, // updateOne only updates one document
-        .upsert = options.upsert,
-        .arrayFilters = options.array_filters,
-    };
-
-    const update_statements = [_]UpdateStatement{update_statement};
-
-    return makeUpdateCommand(allocator, collection_name, &update_statements, options, max_wire_version, db_name, server_api);
-}
-
-pub fn makeUpdateManyCommand(
-    allocator: std.mem.Allocator,
-    collection_name: []const u8,
-    filter: anytype,
-    update: anytype,
-    options: UpdateOptions,
-    max_wire_version: ?i32, // maxWireVersion from handshake
-    db_name: []const u8,
-    server_api: ServerApi,
-) !*opcode.OpMsg {
-    var filter_parsed = try BsonDocument.fromObject(allocator, @TypeOf(filter), filter);
-    defer filter_parsed.deinit(allocator);
-
-    var update_parsed = try BsonDocument.fromObject(allocator, @TypeOf(update), update);
-    defer update_parsed.deinit(allocator);
-
-    const update_statement = UpdateStatement{
-        .q = filter_parsed,
-        .u = update_parsed,
-        .multi = true,
-        .upsert = options.upsert,
-        .arrayFilters = options.array_filters,
-    };
-
-    const update_statements = [_]UpdateStatement{update_statement};
-
-    return makeUpdateCommand(allocator, collection_name, &update_statements, options, max_wire_version, db_name, server_api);
-}
 
 /// @see https://www.mongodb.com/docs/manual/reference/command/update/
 pub const UpdateCommand = struct {
     pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
-
-    pub fn deinit(self: *const UpdateCommand, allocator: Allocator) void {
-        for (self.updates) |update| update.deinit(allocator);
-    }
 
     /// The name of the target collection.
     update: []const u8,
@@ -161,12 +26,16 @@ pub const UpdateCommand = struct {
 
     @"$db": []const u8,
 
+    arrayFilters: ?[]bson.BsonDocument = null,
+
     collation: ?Collation = null,
 
     hint: ?Hint = null,
-    let: ?bson.BsonDocument = null,
 
     comment: ?Comment = null,
+
+    sort: ?bson.BsonDocument = null,
+    upsert: ?bool = null,
 
     writeConcern: ?bson.BsonDocument = null,
 
@@ -180,17 +49,82 @@ pub const UpdateCommand = struct {
     apiDeprecationErrors: ?bool = null,
 
     // RunCommandOptions
+    readPreference: ?[]const u8 = null,
     timeoutMS: ?i64 = null,
     // session: ?ClientSession = null,
+
+    pub fn deinit(self: *const UpdateCommand, allocator: Allocator) void {
+        for (self.updates) |update| update.deinit(allocator);
+        allocator.free(self.updates);
+    }
+
+    pub fn makeUpdateOne(
+        allocator: std.mem.Allocator,
+        collection_name: []const u8,
+        db_name: []const u8,
+        filter: anytype,
+        update: anytype,
+        options: UpdateOneOptions,
+    ) !UpdateCommand {
+        const filter_parsed = try BsonDocument.fromObject(allocator, @TypeOf(filter), filter);
+
+        const update_parsed = try BsonDocument.fromObject(allocator, @TypeOf(update), update);
+
+        const update_statement = UpdateStatement{
+            .q = filter_parsed,
+            .u = update_parsed,
+            .multi = false, // updateOne only updates one document
+            .upsert = options.upsert,
+        };
+        const update_statements = try allocator.alloc(UpdateStatement, 1);
+        update_statements[0] = update_statement;
+
+        var command: UpdateCommand = .{
+            .update = collection_name,
+            .@"$db" = db_name,
+            .updates = update_statements,
+        };
+        options.addToCommand(&command);
+
+        return command;
+    }
+
+    pub fn makeUpdateMany(
+        allocator: std.mem.Allocator,
+        collection_name: []const u8,
+        db_name: []const u8,
+        filter: anytype,
+        update: anytype,
+        options: UpdateManyOptions,
+    ) !UpdateCommand {
+        const filter_parsed = try BsonDocument.fromObject(allocator, @TypeOf(filter), filter);
+
+        const update_parsed = try BsonDocument.fromObject(allocator, @TypeOf(update), update);
+
+        const update_statement = UpdateStatement{
+            .q = filter_parsed,
+            .u = update_parsed,
+            .multi = true,
+            .upsert = options.upsert,
+        };
+
+        const update_statements = try allocator.alloc(UpdateStatement, 1);
+        update_statements[0] = update_statement;
+
+        var command: UpdateCommand = .{
+            .update = collection_name,
+            .@"$db" = db_name,
+            .updates = update_statements,
+        };
+
+        options.addToCommand(&command);
+
+        return command;
+    }
 };
 
 pub const UpdateStatement = struct {
     pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
-
-    pub fn deinit(self: *const UpdateStatement, allocator: Allocator) void {
-        self.q.deinit(allocator);
-        self.u.deinit(allocator);
-    }
 
     /// The query that matches documents to update.
     q: *BsonDocument,
@@ -210,6 +144,11 @@ pub const UpdateStatement = struct {
     collation: ?Collation = null,
 
     hint: ?Hint = null,
+
+    pub fn deinit(self: *const UpdateStatement, allocator: Allocator) void {
+        self.q.deinit(allocator);
+        self.u.deinit(allocator);
+    }
 };
 
 pub const UpdateStatementOptions = struct {
@@ -217,6 +156,13 @@ pub const UpdateStatementOptions = struct {
     multi: bool,
     array_filters: ?[]bson.BsonDocument = null,
     collation: ?Collation = null,
+
+    pub fn addToCommand(self: *const UpdateStatementOptions, statement: *UpdateStatement) void {
+        statement.upsert = self.upsert;
+        statement.multi = self.multi;
+        statement.arrayFilters = self.array_filters;
+        statement.collation = self.collation;
+    }
 };
 
 pub const UpdateCommandResponse = struct {
@@ -303,27 +249,41 @@ pub const UpdateCommandResponse = struct {
     }
 };
 
-pub const UpdateOptions = struct {
-    bypass_document_validation: ?bool = null,
+pub const UpdateOneOptions = struct {
+    arrayFilters: ?[]bson.BsonDocument = null,
 
     collation: ?Collation = null,
 
     hint: ?Hint = null,
 
-    array_filters: ?[]bson.BsonDocument = null,
+    sort: ?bson.BsonDocument = null,
 
     upsert: ?bool = null,
 
-    let: ?bson.BsonDocument = null,
+    pub fn addToCommand(self: *const UpdateOneOptions, command: *UpdateCommand) void {
+        command.collation = self.collation;
+        command.hint = self.hint;
+        command.sort = self.sort;
+        command.arrayFilters = self.arrayFilters;
+    }
+};
 
-    comment: ?Comment = null,
+pub const UpdateManyOptions = struct {
+    arrayFilters: ?[]bson.BsonDocument = null,
 
-    sort: ?bson.BsonDocument = null,
+    collation: ?Collation = null,
 
-    ordered: ?bool = null,
+    hint: ?Hint = null,
 
     // /// @since MongoDB 8.2
     // raw_data: ?bool = null,
+    upsert: ?bool = null,
+
+    pub fn addToCommand(self: *const UpdateManyOptions, command: *UpdateCommand) void {
+        command.collation = self.collation;
+        command.hint = self.hint;
+        command.arrayFilters = self.arrayFilters;
+    }
 };
 
 pub const UpdateCommandChainable = struct {
@@ -353,19 +313,16 @@ pub const UpdateCommandChainable = struct {
         return self;
     }
 
-    pub fn exec(self: *UpdateCommandChainable, options: UpdateOptions) !union(enum) {
-        response: *UpdateCommandResponse,
-        err: *ErrorResponse,
-    } {
+    pub fn exec(
+        self: *UpdateCommandChainable,
+        options: UpdateManyOptions,
+    ) !WriteResponseUnion(UpdateCommandResponse, ErrorResponse, ResponseWithWriteErrors) {
         if (self.err) |err| {
             return err;
         }
 
         const update_statements = try self.builder.toOwnedSlice();
         defer {
-            for (update_statements) |update| {
-                update.deinit(self.collection.allocator);
-            }
             self.collection.allocator.free(update_statements);
             self.builder.deinit();
         }
@@ -374,14 +331,55 @@ pub const UpdateCommandChainable = struct {
             .update = self.collection.collection_name,
             .updates = update_statements,
             .@"$db" = self.collection.database.db_name,
+        };
+
+        options.addToCommand(&command);
+
+        return try self.collection.runWriteCommand(&command, null, UpdateCommandResponse, ResponseWithWriteErrors);
+    }
+};
+
+pub const UpdateStatementBuilder = struct {
+    allocator: std.mem.Allocator,
+    arena: std.heap.ArenaAllocator,
+    update_statements: ArrayList(UpdateStatement),
+
+    pub fn init(allocator: std.mem.Allocator) UpdateStatementBuilder {
+        return .{
+            .allocator = allocator,
+            .arena = std.heap.ArenaAllocator.init(allocator),
+            .update_statements = ArrayList(UpdateStatement).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *UpdateStatementBuilder) void {
+        self.update_statements.deinit();
+        self.arena.deinit();
+    }
+
+    pub fn toOwnedSlice(self: *UpdateStatementBuilder) Allocator.Error![]UpdateStatement {
+        return try self.update_statements.toOwnedSlice();
+    }
+
+    pub fn add(self: *UpdateStatementBuilder, filter: anytype, update: anytype, options: UpdateStatementOptions) !void {
+        const allocator = self.arena.allocator();
+        const filter_parsed = try BsonDocument.fromObject(allocator, @TypeOf(filter), filter);
+
+        const update_parsed = try BsonDocument.fromObject(allocator, @TypeOf(update), update);
+
+        const update_statement = UpdateStatement{
+            .q = filter_parsed,
+            .u = update_parsed, // TODO: add support for pipelines
+            .multi = options.multi,
             .collation = options.collation,
-            .ordered = options.ordered,
-            .let = options.let,
+            .upsert = options.upsert,
+            .arrayFilters = options.array_filters,
         };
-        const result = try self.collection.runCommand(&command, null, UpdateCommandResponse);
-        return switch (result) {
-            .err => .{ .err = result.err },
-            .response => .{ .response = result.response },
-        };
+
+        try self.update_statements.append(update_statement);
+    }
+
+    pub fn build(self: *UpdateStatementBuilder) UpdateStatement {
+        return self.update_statements;
     }
 };

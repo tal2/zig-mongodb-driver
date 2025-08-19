@@ -1,6 +1,5 @@
 const std = @import("std");
 const bson = @import("bson");
-const utils = @import("../utils.zig");
 
 const Allocator = std.mem.Allocator;
 const BsonDocument = bson.BsonDocument;
