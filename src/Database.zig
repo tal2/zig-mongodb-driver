@@ -14,6 +14,7 @@ const Collection = @import("Collection.zig").Collection;
 const RunCommandOptions = commands.RunCommandOptions.RunCommandOptions;
 const HelloCommandResponse = commands.HelloCommand.HelloCommandResponse;
 const ErrorResponse = commands.ErrorResponse;
+const BulkWriteOpsChainable = commands.BulkWriteOpsChainable;
 
 const server_discovery_and_monitoring = @import("server-discovery-and-monitoring/root.zig");
 const MonitoringThreadContext = server_discovery_and_monitoring.MonitoringThreadContext;
@@ -107,6 +108,12 @@ pub const Database = struct {
 
     pub fn collection(self: *Database, collection_name: []const u8) Collection {
         return Collection.init(self, collection_name, self.server_api);
+    }
+
+    pub fn bulkWriteChain(self: *Database) !BulkWriteOpsChainable {
+        const c = try self.allocator.create(Collection);
+        c.* = self.collection("admin");
+        return BulkWriteOpsChainable.init(c);
     }
 
     fn startServerMonitoring(context: *MonitoringThreadContext) void {
