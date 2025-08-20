@@ -1,41 +1,13 @@
 const std = @import("std");
 const bson = @import("bson");
-const opcode = @import("../protocol/opcode.zig");
 const CursorInfo = @import("CursorInfo.zig").CursorInfo;
 const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
-const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
 const Comment = @import("../protocol/comment.zig").Comment;
 
 const Allocator = std.mem.Allocator;
 const BsonDocument = bson.BsonDocument;
 
-pub fn makeGetMoreCommand(
-    allocator: std.mem.Allocator,
-    collection_name: []const u8,
-    cursor_id: i64,
-    options: GetMoreCommandOptions,
-    db_name: []const u8,
-    server_api: ServerApi,
-) !*opcode.OpMsg {
-    var command_data: GetMoreCommand = .{
-        .getMore = cursor_id,
-        .@"$db" = db_name,
-        .collection = collection_name,
-        .batchSize = options.batchSize,
-        .maxTimeMS = options.maxTimeMS,
-        .comment = options.comment,
-    };
-    if (options.run_command_options) |run_command_options| run_command_options.addToCommand(&command_data);
-    server_api.addToCommand(&command_data);
-
-    var command = try BsonDocument.fromObject(allocator, @TypeOf(command_data), command_data);
-    errdefer command.deinit(allocator);
-
-    const result = try opcode.OpMsg.init(allocator, command, 1, 0, .{});
-    return result;
-}
-
-const GetMoreCommand = struct {
+pub const GetMoreCommand = struct {
     pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
 
     /// The cursor identifier.
@@ -57,6 +29,30 @@ const GetMoreCommand = struct {
 
     readPreference: ?[]const u8 = null,
     timeoutMS: ?i64 = null,
+
+    pub fn deinit(self: *GetMoreCommand, allocator: Allocator) void {
+        if (self.comment) |comment| {
+            if (comment == .document) {
+                comment.document.deinit(allocator);
+            }
+        }
+    }
+
+    pub fn make(
+        collection_name: []const u8,
+        db_name: []const u8,
+        cursor_id: i64,
+        options: GetMoreCommandOptions,
+    ) GetMoreCommand {
+        return .{
+            .getMore = cursor_id,
+            .@"$db" = db_name,
+            .collection = collection_name,
+            .batchSize = options.batchSize,
+            .maxTimeMS = options.maxTimeMS,
+            .comment = options.comment,
+        };
+    }
 };
 
 pub const GetMoreCommandOptions = struct {

@@ -33,18 +33,16 @@ pub const UpdateStatementBuilder = UpdateCommand.UpdateStatementBuilder;
 pub const UpdateCommandChainable = UpdateCommand.UpdateCommandChainable;
 
 pub const count_commands = @import("./CountCommand.zig");
-pub const makeCountCommand = count_commands.makeCountCommand;
+pub const CountCommand = count_commands.CountCommand;
 pub const CountCommandResponse = count_commands.CountCommandResponse;
-
-pub const estimated_document_count_commands = @import("./EstimatedDocumentCount.zig");
-pub const makeEstimatedDocumentCount = estimated_document_count_commands.makeEstimatedDocumentCount;
-pub const EstimatedDocumentCountOptions = estimated_document_count_commands.EstimatedDocumentCountOptions;
+pub const EstimatedDocumentCountOptions = count_commands.EstimatedDocumentCountOptions;
 
 pub const get_more_commands = @import("./GetMoreCommand.zig");
-pub const makeGetMoreCommand = get_more_commands.makeGetMoreCommand;
+pub const GetMoreCommand = get_more_commands.GetMoreCommand;
+pub const GetMoreCommandOptions = get_more_commands.GetMoreCommandOptions;
 
 pub const kill_cursors_commands = @import("./KillCursorsCommand.zig");
-pub const makeKillCursorsCommand = kill_cursors_commands.makeKillCursorsCommand;
+pub const KillCursorsCommand = kill_cursors_commands.KillCursorsCommand;
 pub const KillCursorsCommandResponse = kill_cursors_commands.KillCursorsCommandResponse;
 
 pub const cursor_iterator = @import("./CursorIterator.zig");

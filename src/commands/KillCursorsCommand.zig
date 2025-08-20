@@ -1,37 +1,11 @@
 const std = @import("std");
 const bson = @import("bson");
-const opcode = @import("../protocol/opcode.zig");
-const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
 const Comment = @import("../protocol/comment.zig").Comment;
 
 const Allocator = std.mem.Allocator;
 const BsonDocument = bson.BsonDocument;
 
 pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
-
-pub fn makeKillCursorsCommand(
-    allocator: std.mem.Allocator,
-    collection_name: []const u8,
-    cursors: []const i64,
-    max_wire_version: ?i32, // maxWireVersion from handshake
-    db_name: []const u8,
-    server_api: ServerApi,
-) !*opcode.OpMsg {
-    _ = max_wire_version;
-
-    var command_data: KillCursorsCommand = .{
-        .killCursors = collection_name,
-        .cursors = cursors,
-        .@"$db" = db_name,
-    };
-    server_api.addToCommand(&command_data);
-
-    var command = try BsonDocument.fromObject(allocator, @TypeOf(command_data), command_data);
-    errdefer command.deinit(allocator);
-
-    const result = try opcode.OpMsg.init(allocator, command, 1, 0, .{});
-    return result;
-}
 
 pub const KillCursorsCommand = struct {
     pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
@@ -51,6 +25,18 @@ pub const KillCursorsCommand = struct {
 
     // readPreference: ?[]const u8 = null,
     // timeoutMS: ?i64 = null,
+
+    pub fn make(
+        collection_name: []const u8,
+        db_name: []const u8,
+        cursors: []const i64,
+    ) KillCursorsCommand {
+        return .{
+            .killCursors = collection_name,
+            .cursors = cursors,
+            .@"$db" = db_name,
+        };
+    }
 };
 
 pub const KillCursorsCommandResponse = struct {
@@ -59,14 +45,6 @@ pub const KillCursorsCommandResponse = struct {
     cursorsAlive: []const i64,
     cursorsUnknown: []const i64,
     ok: f64,
-
-    pub fn deinit(self: *const KillCursorsCommandResponse, allocator: Allocator) void {
-        allocator.free(self.cursorsKilled);
-        allocator.free(self.cursorsNotFound);
-        allocator.free(self.cursorsAlive);
-        allocator.free(self.cursorsUnknown);
-        allocator.destroy(self);
-    }
 
     pub fn dupe(self: *const KillCursorsCommandResponse, allocator: Allocator) !*KillCursorsCommandResponse {
         const clone = try allocator.create(KillCursorsCommandResponse);

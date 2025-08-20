@@ -224,28 +224,30 @@ pub const Collection = struct {
         return sum_response.n;
     }
 
-    pub fn estimatedDocumentCount(self: *const Collection, options: commands.estimated_document_count_commands.EstimatedDocumentCountOptions) !i64 {
-        const command = try commands.makeEstimatedDocumentCount(self.allocator, self.collection_name, options, null, self.database.db_name, self.server_api);
+    pub fn estimatedDocumentCount(self: *const Collection, options: commands.EstimatedDocumentCountOptions) !union(enum) {
+        n: i64,
+        err: *ErrorResponse,
+    } {
+        var command = try commands.CountCommand.makeEstimateCount(self.collection_name, self.database.db_name, options);
         defer command.deinit(self.allocator);
-        const response = try self.database.stream.send(self.allocator, command);
-        defer response.deinit(self.allocator);
 
-        const count_response = try commands.CountCommandResponse.parseBson(self.allocator, response.section_document.document);
-        defer self.allocator.destroy(count_response);
-        return count_response.n;
+        const result = try self.runCommand(&command, options, commands.CountCommandResponse);
+        return switch (result) {
+            .response => |response| .{ .n = response.n },
+            .err => |err| .{ .err = err },
+        };
+
     }
 
-    pub fn killCursors(self: *const Collection, cursor_ids: []const i64) !*commands.KillCursorsCommandResponse {
-        const kill_cursor_command = try commands.makeKillCursorsCommand(self.allocator, self.collection_name, cursor_ids, null, self.database.db_name, self.server_api);
-        defer kill_cursor_command.deinit(self.allocator);
 
-        const response = try self.database.stream.send(self.allocator, kill_cursor_command);
-        defer response.deinit(self.allocator);
+    pub fn killCursors(self: *const Collection, cursor_ids: []const i64) !ResponseUnion(commands.KillCursorsCommandResponse, ErrorResponse) {
+        var kill_cursor_command = commands.KillCursorsCommand.make(self.collection_name, self.database.db_name, cursor_ids);
 
-        const kill_cursor_response = try commands.KillCursorsCommandResponse.parseBson(self.allocator, response.section_document.document);
-        errdefer kill_cursor_response.deinit(self.allocator);
+        return try self.runCommand(&kill_cursor_command, null, commands.KillCursorsCommandResponse);
+    }
 
-        return kill_cursor_response;
+
+
     }
 
     pub fn runWriteCommand(self: *const Collection, command: anytype, options: anytype, comptime ResponseType: type, comptime ResponseErrorType: type) !WriteResponseUnion(ResponseType, ErrorResponse, ResponseErrorType) {
@@ -300,19 +302,6 @@ pub const Collection = struct {
         return .{ .response = try ResponseType.parseBson(self.allocator, response.section_document.document) };
     }
 
-    pub fn runCommandOpcode(self: *const Collection, command_op_msg: *opcode.OpMsg, comptime ResponseType: type) !ResponseUnion(ResponseType, ErrorResponse) {
-        const response = try self.database.stream.send(self.allocator, command_op_msg);
-        defer response.deinit(self.allocator);
-
-        if (try ErrorResponse.isError(self.allocator, response.section_document.document)) {
-            const error_response = try ErrorResponse.parseBson(self.allocator, response.section_document.document);
-            errdefer error_response.deinit(self.allocator);
-            return .{ .err = error_response };
-        }
-
-        return .{ .response = try ResponseType.parseBson(self.allocator, response.section_document.document) };
-    }
-
     pub fn runCommand(self: *const Collection, command: anytype, options: anytype, comptime ResponseType: type) !ResponseUnion(ResponseType, ErrorResponse) {
         comptime {
             const command_type_info = @typeInfo(@TypeOf(command));
@@ -325,13 +314,12 @@ pub const Collection = struct {
             if (!@hasDecl(ResponseType, "parseBson")) {
                 @compileError("runCommand command param type must have a parseBson method");
             }
-            if (@typeInfo(@TypeOf(options)) != .null and !@hasDecl(@TypeOf(options), "addToCommand")) {
+            if (@TypeOf(options) != @TypeOf(null) and !@hasDecl(@TypeOf(options), "addToCommand")) {
                 @compileError("runCommand options param must have an addToCommand method");
             }
         }
 
-        command.*.@"$db" = self.database.db_name;
-        if (comptime @typeInfo(@TypeOf(options)) != .null) {
+        if (comptime @TypeOf(options) != @TypeOf(null)) {
             options.addToCommand(command);
         }
 

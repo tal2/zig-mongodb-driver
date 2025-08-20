@@ -17,6 +17,8 @@ pub const CursorIterator = struct {
     batch_size: ?i32,
     // limit: ?i64,
 
+    get_more_command: ?*commands.GetMoreCommand = null,
+
     count: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator, collection: *const Collection, cursor: *CursorInfo, batch_size: ?i32) !CursorIterator {
@@ -57,6 +59,11 @@ pub const CursorIterator = struct {
         for (self.buffer.items) |item| {
             item.deinit(self.allocator);
         }
+        if (self.get_more_command != null) {
+            const command = self.get_more_command.?;
+            self.allocator.destroy(command);
+            self.get_more_command = null;
+        }
         self.buffer.clearAndFree();
         // self.allocator.destroy(self);
     }
@@ -67,26 +74,29 @@ pub const CursorIterator = struct {
             return null;
         }
         if (self.buffer.items.len == 0) {
-            const command = try commands.makeGetMoreCommand(self.allocator, self.collection.collection_name, self.cursor_id, .{
-                .batchSize = self.batch_size,
-                // .maxTimeMS = 1000,
-                // .comment = "get more",
-            }, self.collection.database.db_name, self.collection.database.server_api);
-            defer command.deinit(self.allocator);
+            if (self.get_more_command == null) {
+                self.get_more_command = try self.allocator.create(commands.GetMoreCommand);
+                self.get_more_command.?.* = commands.GetMoreCommand.make(self.collection.collection_name, self.collection.database.db_name, self.cursor_id, .{ .batchSize = self.batch_size });
+            }
 
-            const response = try self.collection.database.stream.send(self.allocator, command);
-            defer response.deinit(self.allocator);
-            const find_command_response = try FindCommandResponse.parseBson(self.allocator, response.section_document.document);
-            defer find_command_response.deinit(self.allocator);
-
-            self.cursor_id = find_command_response.cursor.id;
-
-            if (find_command_response.cursor.nextBatch) |next_batch| {
-                find_command_response.cursor.nextBatch = null;
-                self.count += next_batch.len;
-                return next_batch;
-            } else {
-                return null;
+            const result = try self.collection.runCommand(self.get_more_command.?, null, commands.FindCommandResponse);
+            switch (result) {
+                .response => |response| {
+                    defer response.deinit(self.allocator);
+                    var cursor = response.cursor;
+                    self.cursor_id = cursor.id;
+                    self.get_more_command.?.getMore = self.cursor_id;
+                    if (cursor.nextBatch) |next_batch| {
+                        cursor.nextBatch = null;
+                        self.count += next_batch.len;
+                        return next_batch;
+                    } else {
+                        return null;
+                    }
+                },
+                .err => {
+                    return error.CursorIteratorError;
+                },
             }
         }
         self.count += self.buffer.items.len;

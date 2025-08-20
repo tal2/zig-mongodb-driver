@@ -1,55 +1,22 @@
 const std = @import("std");
 const bson = @import("bson");
-const opcode = @import("../protocol/opcode.zig");
 
 const Allocator = std.mem.Allocator;
 const BsonDocument = bson.BsonDocument;
-const ServerApiVersion = @import("../server-discovery-and-monitoring/server-info.zig").ServerApiVersion;
-const ServerApi = @import("../server-discovery-and-monitoring/server-info.zig").ServerApi;
+
 const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
+const Comment = @import("../protocol/comment.zig").Comment;
 
 pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
-
-pub fn makeCountCommand(
-    allocator: std.mem.Allocator,
-    collection_name: []const u8,
-    filter: anytype,
-    max_wire_version: ?i32, // maxWireVersion from handshake
-    db_name: []const u8,
-    server_api: ServerApi,
-    options: ?RunCommandOptions,
-) !*opcode.OpMsg {
-    _ = max_wire_version;
-    const filter_parsed = try BsonDocument.fromObject(allocator, @TypeOf(filter), filter);
-    errdefer filter_parsed.deinit(allocator);
-
-    const command_data: CountCommand = .{
-        .count = collection_name,
-        // .query = filter_parsed.*,
-        .@"$db" = db_name,
-        // .ordered = options.ordered,
-        // .writeConcern = options.writeConcern,
-        // .comment = options.comment,
-        // .let = options.let,
-        // // .raw_data =  opts.rawData,
-        // .maxTimeMS = options.maxTimeMS,
-    };
-    server_api.addToCommand(&command_data);
-    if (options.run_command_options) |run_command_options| run_command_options.addToCommand(&command_data);
-
-    var command = try BsonDocument.fromObject(allocator, @TypeOf(command_data), command_data);
-    errdefer command.deinit(allocator);
-
-    const result = try opcode.OpMsg.init(allocator, command, 1, 0, .{});
-    return result;
-}
 
 pub const CountCommand = struct {
     pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
 
     count: []const u8,
-    query: ?BsonDocument = null,
+    query: ?*BsonDocument = null,
     @"$db": []const u8,
+
+    comment: ?Comment = null,
 
     // Must be value of ServerApiVersion.value()
     apiVersion: ?[]const u8 = null,
@@ -58,6 +25,38 @@ pub const CountCommand = struct {
 
     readPreference: ?[]const u8 = null,
     timeoutMS: ?i64 = null,
+
+    pub fn deinit(self: *const CountCommand, allocator: Allocator) void {
+        if (self.query) |query| query.deinit(allocator);
+    }
+
+    pub fn makeEstimateCount(
+        collection_name: []const u8,
+        db_name: []const u8,
+        options: EstimatedDocumentCountOptions,
+    ) !CountCommand {
+        var command = CountCommand{
+            .count = collection_name,
+            .@"$db" = db_name,
+        };
+
+        options.addToCommand(&command);
+
+        return command;
+    }
+};
+
+pub const EstimatedDocumentCountOptions = struct {
+    pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
+
+    run_command_options: ?RunCommandOptions = null,
+
+    comment: ?Comment = null,
+
+    pub fn addToCommand(self: *const EstimatedDocumentCountOptions, command: *CountCommand) void {
+        if (self.run_command_options) |run_command_options| run_command_options.addToCommand(command);
+        command.comment = self.comment;
+    }
 };
 
 pub const CountCommandResponse = struct {
