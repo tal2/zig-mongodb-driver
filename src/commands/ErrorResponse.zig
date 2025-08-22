@@ -87,7 +87,7 @@ pub const ErrorResponse = struct {
     }
 
     pub fn isError(allocator: Allocator, document: *const BsonDocument) !bool {
-        const doc_view = try BsonDocumentView.loadDocument(allocator, document);
+        const doc_view = BsonDocumentView.loadDocument(allocator, document);
         return try doc_view.checkElementValue("ok", @as(f64, 0.0));
     }
 };
