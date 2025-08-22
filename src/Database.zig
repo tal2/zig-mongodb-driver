@@ -126,25 +126,29 @@ pub const Database = struct {
 
         const start_time = time.milliTimestamp();
         var result = try conn_stream.send(allocator, command);
+        defer result.deinit(allocator);
+
+        if (try ErrorResponse.isError(allocator, result.section_document.document)) {
+            return error.HandshakeFailed;
+        }
+
         const hello_response = commands.HelloCommandResponse.parseBson(allocator, result.section_document.document) catch |err| {
             std.debug.print("error parsing hello response: {any}\n", .{err});
             //TODO: handle error
-            @panic("error parsing hello response");
-            // return current_server_description;
+            return error.HandshakeFailed;
         };
         defer hello_response.deinit(allocator);
-        defer result.deinit(allocator);
+
+        const now = time.milliTimestamp();
+
+        const end_time = now;
+        const round_trip_time: u64 = @intCast(end_time - start_time);
+
+        try self.handleHelloResponse(current_server_description, hello_response, now, round_trip_time);
 
         if (credentials) |creds| {
             try self.authConversation(allocator, conn_stream, creds);
         }
-
-        const now = time.milliTimestamp();
-
-        const end_time = time.milliTimestamp();
-        const round_trip_time: u64 = @intCast(end_time - start_time);
-
-        try self.handleHelloResponse(current_server_description, hello_response, now, round_trip_time);
     }
 
     fn authConversation(self: *Database, allocator: Allocator, conn_stream: *ConnectionStream, creds: MongoCredential) !void {
