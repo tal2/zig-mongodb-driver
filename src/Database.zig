@@ -93,16 +93,15 @@ pub const Database = struct {
 
         try self.handshake(current_server_description, &self.stream, credentials);
 
+        try self.monitoring_threads.ensureTotalCapacity(self.client_config.seeds.items.len);
         for (self.client_config.seeds.items) |seed| {
-            var thread_context = try self.allocator.create(MonitoringThreadContext);
+            const thread_context = try self.allocator.create(MonitoringThreadContext);
             errdefer self.allocator.destroy(thread_context);
-            thread_context.allocator = self.allocator;
-            thread_context.server_address = seed;
-            thread_context.database = self;
+            thread_context.* = try MonitoringThreadContext.init(self.allocator, self, seed, .{});
 
-            try self.pool.spawn(startServerMonitoring, .{thread_context});
+            try self.pool.spawn(MonitoringThreadContext.startServerMonitoring, .{thread_context});
 
-            self.monitoring_threads.append(thread_context) catch @panic("failed to append thread");
+            self.monitoring_threads.appendAssumeCapacity(thread_context);
         }
     }
 
@@ -116,84 +115,7 @@ pub const Database = struct {
         return BulkWriteOpsChainable.init(c);
     }
 
-    fn startServerMonitoring(context: *MonitoringThreadContext) void {
-        defer context.allocator.destroy(context);
-
-        defer if (!context.stop_signal) {
-            var index: usize = 0;
-            for (context.database.monitoring_threads.items) |thread_context| {
-                if (context == thread_context) {
-                    break;
-                }
-                index += 1;
-            }
-            _ = context.database.monitoring_threads.swapRemove(index);
-        };
-
-        std.debug.print("monitorServer started\n", .{});
-
-        monitorServer(context) catch |err| {
-            std.debug.print("error monitoring server: {any}\n", .{err});
-        };
-        if (context.stop_signal) {
-            std.debug.print("stop signal received\n", .{});
-        }
-
-        std.debug.print("monitorServer ended\n", .{});
-        context.done = true;
-    }
-
-    fn monitorServer(context: *MonitoringThreadContext) !void {
-        // Authentication (including mechanism negotiation) MUST NOT happen on monitoring-only sockets.
-
-        const database = context.database;
-        const allocator = context.allocator;
-
-        var current_server_description = try allocator.create(ServerDescription);
-        defer current_server_description.deinit(allocator);
-        current_server_description.address = &context.server_address;
-
-        const stream_address = try net.Address.resolveIp(context.server_address.hostname, context.server_address.port);
-        var stream = ConnectionStream.init(stream_address);
-        defer stream.deinit();
-        try stream.connect();
-
-        try database.handshake(current_server_description, &stream, null);
-
-        //TODO: replace topology description pointer instead of mutating it
-        // database.topology_description.servers.put(context.server_address, current_server_description.*) catch @panic("failed to put server description");
-
-        // const options = RunCommandOptions{
-        //     .readPreference = .primary,
-        // };
-        const command_hello = try commands.makeHelloCommand(allocator, database.db_name, database.server_api);
-        defer command_hello.deinit(allocator);
-
-        const time_between_heartbeats = std.time.ns_per_s * 1;
-
-        while (true) {
-            if (context.stop_signal) return;
-            Thread.sleep(time_between_heartbeats);
-            if (context.stop_signal) return;
-            // current_server_description = try database.handshake(current_server_description, &stream);
-
-            const start_time = time.milliTimestamp();
-
-            var response = try stream.send(allocator, command_hello);
-            defer response.deinit(allocator);
-            const end_time = time.milliTimestamp();
-            const round_trip_time: u64 = @intCast(end_time - start_time);
-            std.debug.print("handshake time: {d}ms\n", .{round_trip_time});
-
-            const hello_response = try commands.HelloCommandResponse.parseBson(allocator, response.section_document.document);
-            defer allocator.destroy(hello_response);
-
-            const now = time.milliTimestamp();
-            try database.handleHelloResponse(current_server_description, hello_response, now, round_trip_time);
-        }
-    }
-
-    fn handshake(self: *Database, current_server_description: *ServerDescription, conn_stream: *ConnectionStream, credentials: ?MongoCredential) !void {
+    pub fn handshake(self: *Database, current_server_description: *ServerDescription, conn_stream: *ConnectionStream, credentials: ?MongoCredential) !void {
         const allocator = self.allocator;
 
         // const options: RunCommandOptions = .{
@@ -275,7 +197,7 @@ pub const Database = struct {
         }
     }
 
-    fn handleHelloResponse(
+    pub fn handleHelloResponse(
         self: *Database,
         current_server_description: *ServerDescription,
         hello_response: *commands.HelloCommandResponse,
