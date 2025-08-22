@@ -45,6 +45,7 @@ const BulkWriteResponse = @import("commands/bulk-operations.zig").BulkWriteRespo
 const BulkWriteOpsChainable = @import("commands/bulk-operations.zig").BulkWriteOpsChainable;
 const WriteResponseUnion = @import("ResponseUnion.zig").WriteResponseUnion;
 const ResponseUnion = @import("ResponseUnion.zig").ResponseUnion;
+const RequestIdGenerator = @import("commands/RequestIdGenerator.zig");
 
 pub const Collection = struct {
     database: *Database,
@@ -274,7 +275,8 @@ pub const Collection = struct {
         const command_serialized = try BsonDocument.fromObject(self.allocator, @TypeOf(command), command);
         errdefer command_serialized.deinit(self.allocator);
 
-        const command_op_msg = try opcode.OpMsg.init(self.allocator, command_serialized, 1, 0, .{});
+        const request_id = RequestIdGenerator.getNextRequestId();
+        const command_op_msg = try opcode.OpMsg.init(self.allocator, command_serialized, request_id, 0, .{});
         defer command_op_msg.deinit(self.allocator);
 
         return try self.runWriteCommandOpcode(command_op_msg, ResponseType, ResponseErrorType);
@@ -327,7 +329,8 @@ pub const Collection = struct {
         errdefer command_serialized.deinit(allocator);
 
 
-        const command_op_msg = try opcode.OpMsg.init(allocator, command_serialized, 1, 0, .{});
+        const request_id = RequestIdGenerator.getNextRequestId();
+        const command_op_msg = try opcode.OpMsg.init(allocator, command_serialized, request_id, 0, .{});
         defer command_op_msg.deinit(allocator);
 
         const response = try self.database.stream.send(allocator, command_op_msg);
