@@ -48,7 +48,7 @@ const ResponseUnion = @import("ResponseUnion.zig").ResponseUnion;
 
 pub const Collection = struct {
     database: *Database,
-    allocator: std.mem.Allocator,
+    allocator: Allocator,
     collection_name: []const u8,
     server_api: ServerApi,
 
@@ -103,7 +103,7 @@ pub const Collection = struct {
         var command = try commands.FindCommand.make(self.allocator, self.collection_name, self.database.db_name, filter, limit, options);
         defer command.deinit(self.allocator);
 
-        const result = try self.runCommand(&command, options, FindCommandResponse);
+        const result = try self.runCommand(self.allocator, &command, options, FindCommandResponse);
         return switch (result) {
             .response => |response| {
                 defer response.deinit(self.allocator);
@@ -121,7 +121,7 @@ pub const Collection = struct {
         var command = try commands.FindCommand.makeFindOne(self.allocator, self.collection_name, self.database.db_name, filter, options);
         defer command.deinit(self.allocator);
 
-        const result = try self.runCommand(&command, options, FindCommandResponse);
+        const result = try self.runCommand(self.allocator, &command, options, FindCommandResponse);
         return switch (result) {
             .response => |response| {
                 defer response.deinit(self.allocator);
@@ -184,10 +184,7 @@ pub const Collection = struct {
 
         var command = try commands.AggregateCommand.make(arena_allocator, self.collection_name, self.database.db_name, pipeline, options, cursor_options);
 
-
-
-
-        return switch (try self.runCommand(&command, options, FindCommandResponse)) {
+        return switch (try self.runCommand(self.allocator, &command, options, FindCommandResponse)) {
             .response => |response| {
                 defer response.deinit(self.allocator);
                 return .{ .cursor = try CursorIterator.init(self.allocator, self, response.cursor, options.batchSize) };
@@ -204,24 +201,24 @@ pub const Collection = struct {
         var pb = commands.PipelineBuilder.init(arena_allocator);
         const pipeline = try pb.match(filter).group(.{ ._id = 1, .n = .{ .@"$sum" = 1 } }).build();
 
-        const command = try commands.AggregateCommand.make(arena_allocator, self.collection_name, self.database.db_name, pipeline, options, .{});
+        var command = try commands.AggregateCommand.make(arena_allocator, self.collection_name, self.database.db_name, pipeline, options, .{});
 
-        const command_serialized = try BsonDocument.fromObject(arena_allocator, @TypeOf(command), command);
-        errdefer command_serialized.deinit(arena_allocator);
+        const aggregate_command_response = try self.runCommand(arena_allocator, &command, options, FindCommandResponse);
+        return switch (aggregate_command_response) {
+            .response => |response| {
+                const SumResponse = struct {
+                    _id: ?i64,
+                    n: i64,
+                };
 
-        const command_op_msg = try opcode.OpMsg.init(arena_allocator, command_serialized, 1, 0, .{});
-        defer command_op_msg.deinit(arena_allocator);
-
-        const response = try self.database.stream.send(arena_allocator, command_op_msg);
-        const aggregate_command_response = try FindCommandResponse.parseBson(arena_allocator, response.section_document.document);
-
-        const SumResponse = struct {
-            _id: ?i64,
-            n: i64,
+                const sum_response = try response.firstAs(SumResponse, arena_allocator) orelse return 0;
+                return sum_response.n;
+            },
+            .err => |err| {
+                defer err.deinit(self.allocator);
+                return error.OperationFailed;
+            },
         };
-
-        const sum_response = try aggregate_command_response.firstAs(SumResponse, arena_allocator) orelse return 0;
-        return sum_response.n;
     }
 
     pub fn estimatedDocumentCount(self: *const Collection, options: commands.EstimatedDocumentCountOptions) !union(enum) {
@@ -231,7 +228,7 @@ pub const Collection = struct {
         var command = try commands.CountCommand.makeEstimateCount(self.collection_name, self.database.db_name, options);
         defer command.deinit(self.allocator);
 
-        const result = try self.runCommand(&command, options, commands.CountCommandResponse);
+        const result = try self.runCommand(self.allocator, &command, options, commands.CountCommandResponse);
         return switch (result) {
             .response => |response| .{ .n = response.n },
             .err => |err| .{ .err = err },
@@ -243,7 +240,7 @@ pub const Collection = struct {
     pub fn killCursors(self: *const Collection, cursor_ids: []const i64) !ResponseUnion(commands.KillCursorsCommandResponse, ErrorResponse) {
         var kill_cursor_command = commands.KillCursorsCommand.make(self.collection_name, self.database.db_name, cursor_ids);
 
-        return try self.runCommand(&kill_cursor_command, null, commands.KillCursorsCommandResponse);
+        return try self.runCommand(self.allocator, &kill_cursor_command, null, commands.KillCursorsCommandResponse);
     }
 
 
@@ -302,7 +299,7 @@ pub const Collection = struct {
         return .{ .response = try ResponseType.parseBson(self.allocator, response.section_document.document) };
     }
 
-    pub fn runCommand(self: *const Collection, command: anytype, options: anytype, comptime ResponseType: type) !ResponseUnion(ResponseType, ErrorResponse) {
+    pub fn runCommand(self: *const Collection, allocator: Allocator, command: anytype, options: anytype, comptime ResponseType: type) !ResponseUnion(ResponseType, ErrorResponse) {
         comptime {
             const command_type_info = @typeInfo(@TypeOf(command));
             if (command_type_info != .pointer) {
@@ -325,24 +322,25 @@ pub const Collection = struct {
 
         self.server_api.addToCommand(command);
 
-        var command_serialized = try BsonDocument.fromObject(self.allocator, @TypeOf(command), command);
-        errdefer command_serialized.deinit(self.allocator);
+
+        var command_serialized = try BsonDocument.fromObject(allocator, @TypeOf(command), command);
+        errdefer command_serialized.deinit(allocator);
 
 
-        const command_op_msg = try opcode.OpMsg.init(self.allocator, command_serialized, 1, 0, .{});
-        defer command_op_msg.deinit(self.allocator);
+        const command_op_msg = try opcode.OpMsg.init(allocator, command_serialized, 1, 0, .{});
+        defer command_op_msg.deinit(allocator);
 
-        const response = try self.database.stream.send(self.allocator, command_op_msg);
-        defer response.deinit(self.allocator);
+        const response = try self.database.stream.send(allocator, command_op_msg);
+        defer response.deinit(allocator);
 
-        if (try ErrorResponse.isError(self.allocator, response.section_document.document)) {
+        if (try ErrorResponse.isError(allocator, response.section_document.document)) {
             const error_response = try response.section_document.document.toObject(self.allocator, ErrorResponse, .{ .ignore_unknown_fields = true });
             errdefer error_response.deinit(self.allocator);
             return .{ .err = error_response };
         }
 
-        const response_parsed = try response.section_document.document.toObject(self.allocator, ResponseType, .{ .ignore_unknown_fields = true });
-        errdefer response_parsed.deinit(self.allocator);
+        const response_parsed = try response.section_document.document.toObject(allocator, ResponseType, .{ .ignore_unknown_fields = true });
+        errdefer response_parsed.deinit(allocator);
         return .{ .response = response_parsed };
     }
 };

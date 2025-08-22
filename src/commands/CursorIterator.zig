@@ -79,7 +79,7 @@ pub const CursorIterator = struct {
                 self.get_more_command.?.* = commands.GetMoreCommand.make(self.collection.collection_name, self.collection.database.db_name, self.cursor_id, .{ .batchSize = self.batch_size });
             }
 
-            const result = try self.collection.runCommand(self.get_more_command.?, null, commands.FindCommandResponse);
+            const result = try self.collection.runCommand(self.allocator, self.get_more_command.?, null, commands.FindCommandResponse);
             switch (result) {
                 .response => |response| {
                     defer response.deinit(self.allocator);
