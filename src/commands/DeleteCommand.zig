@@ -51,8 +51,8 @@ pub const DeleteCommand = struct {
 
     pub fn makeDeleteOne(
         allocator: std.mem.Allocator,
-        db_name: []const u8,
         collection_name: []const u8,
+        db_name: []const u8,
         filter: anytype,
         options: DeleteOptions,
     ) !DeleteCommand {
@@ -76,8 +76,8 @@ pub const DeleteCommand = struct {
 
     pub fn makeDeleteMany(
         allocator: std.mem.Allocator,
-        db_name: []const u8,
         collection_name: []const u8,
+        db_name: []const u8,
         filter: anytype,
         options: DeleteOptions,
     ) !DeleteCommand {

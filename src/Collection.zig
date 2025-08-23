@@ -137,21 +137,21 @@ pub const Collection = struct {
     }
 
     pub fn deleteOne(self: *const Collection, filter: anytype, options: DeleteOptions) !WriteResponseUnion(DeleteCommandResponse, ErrorResponse, ResponseWithWriteErrors) {
-        var command_delete = try delete_commands.DeleteCommand.makeDeleteOne(self.allocator, self.database.db_name, self.collection_name, filter, options);
+        var command_delete = try delete_commands.DeleteCommand.makeDeleteOne(self.allocator, self.collection_name, self.database.db_name, filter, options);
         defer command_delete.deinit(self.allocator);
 
         return try self.runWriteCommand(&command_delete, options, DeleteCommandResponse, ResponseWithWriteErrors);
     }
 
     pub fn deleteMany(self: *const Collection, filter: anytype, options: DeleteOptions) !WriteResponseUnion(DeleteCommandResponse, ErrorResponse, ResponseWithWriteErrors) {
-        var command_delete = try delete_commands.DeleteCommand.makeDeleteMany(self.allocator, self.database.db_name, self.collection_name, filter, options);
+        var command_delete = try delete_commands.DeleteCommand.makeDeleteMany(self.allocator, self.collection_name, self.database.db_name, filter, options);
         defer command_delete.deinit(self.allocator);
 
         return try self.runWriteCommand(&command_delete, options, DeleteCommandResponse, ResponseWithWriteErrors);
     }
 
     pub fn replaceOne(self: *const Collection, filter: anytype, replacement: anytype, options: ReplaceOptions) !WriteResponseUnion(ReplaceCommandResponse, ErrorResponse, ResponseWithWriteErrors) {
-        var command_replace = try replace_commands.ReplaceCommand.makeReplaceOne(self.allocator, self.database.db_name, self.collection_name, filter, replacement, options);
+        var command_replace = try replace_commands.ReplaceCommand.makeReplaceOne(self.allocator, self.collection_name, self.database.db_name, filter, replacement, options);
         defer command_replace.deinit(self.allocator);
 
         return try self.runWriteCommand(&command_replace, options, ReplaceCommandResponse, ResponseWithWriteErrors);
