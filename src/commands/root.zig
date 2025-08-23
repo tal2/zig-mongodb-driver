@@ -48,6 +48,10 @@ pub const KillCursorsCommandResponse = kill_cursors_commands.KillCursorsCommandR
 pub const cursor_iterator = @import("./CursorIterator.zig");
 pub const CursorIterator = cursor_iterator.CursorIterator;
 
+pub const end_sessions_commands = @import("./EndSessionsCommand.zig");
+pub const EndSessionsCommand = end_sessions_commands.EndSessionsCommand;
+pub const EndSessionsCommandResponse = end_sessions_commands.EndSessionsCommandResponse;
+
 pub const aggregate_commands = @import("./AggregateCommand.zig");
 pub const AggregateCommand = aggregate_commands.AggregateCommand;
 pub const AggregateOptions = aggregate_commands.AggregateOptions;

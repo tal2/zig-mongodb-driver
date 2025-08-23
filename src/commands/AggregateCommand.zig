@@ -6,6 +6,7 @@ const commands = @import("./root.zig");
 const FindOptions = commands.FindOptions;
 const Hint = @import("../protocol/hint.zig").Hint;
 const Comment = @import("../protocol/comment.zig").Comment;
+const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
 
 const Allocator = std.mem.Allocator;
 const BsonDocument = bson.BsonDocument;
@@ -51,6 +52,8 @@ pub const AggregateCommand = struct {
 
     readPreference: ?[]const u8 = null,
     timeoutMS: ?i64 = null,
+
+    lsid: ?*BsonDocument = null,
 
     pub fn deinit(self: *const AggregateCommand, allocator: std.mem.Allocator) void {
         for (self.pipeline) |stage| {
@@ -141,6 +144,8 @@ pub const AggregateCommandResponse = struct {
 
 pub const AggregateOptions = struct {
     pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
+
+    run_command_options: ?RunCommandOptions = null,
 
     allowDiskUse: ?bool = null,
 

@@ -1,27 +1,19 @@
+const ClientSession = @import("../../src/sessions/ClientSession.zig").ClientSession;
+const ReadPreference = @import("../../src/commands/ReadPreference.zig").ReadPreference;
+
 pub const RunCommandOptions = struct {
-    readPreference: ?ReadPreference = .primary,
+    readPreference: ?ReadPreference = null,
+    session: ?*ClientSession = null,
     timeoutMS: ?i64 = null,
 
-    pub inline fn addToCommand(self: *const RunCommandOptions, command: anytype) void {
-        if (self.readPreference) |read_preference| {
-            command.readPreference = read_preference.toValue();
+    pub fn addToCommand(self: *const RunCommandOptions, command: anytype) void {
+        if (comptime @hasDecl(@TypeOf(command.*), "readPreference")) {
+            if (self.readPreference) |read_preference| {
+                command.readPreference = read_preference.toValue();
+            }
         }
-        command.timeoutMS = self.timeoutMS;
-    }
-};
-
-pub const ReadPreference = enum {
-    primary,
-    primary_preferred,
-    secondary,
-    secondary_preferred,
-
-    pub fn toValue(self: ReadPreference) []const u8 {
-        return switch (self) {
-            .primary => "primary",
-            .primary_preferred => "primaryPreferred",
-            .secondary => "secondary",
-            .secondary_preferred => "secondaryPreferred",
-        };
+        if (comptime @hasDecl(@TypeOf(command.*), "timeoutMS")) {
+            command.timeoutMS = self.timeoutMS;
+        }
     }
 };

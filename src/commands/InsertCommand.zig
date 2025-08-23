@@ -22,7 +22,6 @@ pub const InsertOneOptions = struct {
     // rawData: ?bool = null,
 
     pub fn addToCommand(self: *const InsertOneOptions, command: *InsertCommand) void {
-        if (self.run_command_options) |run_command_options| run_command_options.addToCommand(command);
 
         command.bypassDocumentValidation = self.bypassDocumentValidation;
         command.comment = self.comment;
@@ -42,7 +41,6 @@ pub const InsertManyOptions = struct {
     // raw_data: ?bool = null,
 
     pub fn addToCommand(self: *const InsertManyOptions, command: *InsertCommand) void {
-        if (self.run_command_options) |run_command_options| run_command_options.addToCommand(command);
 
         command.bypassDocumentValidation = self.bypass_document_validation;
         command.ordered = self.ordered;
@@ -69,6 +67,7 @@ pub const InsertCommand = struct {
 
     readPreference: ?[]const u8 = null,
     timeoutMS: ?i64 = null,
+    lsid: ?*BsonDocument = null,
 
     pub fn deinit(self: *const InsertCommand, allocator: Allocator) void {
         for (self.documents) |document| {

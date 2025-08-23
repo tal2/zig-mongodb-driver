@@ -16,6 +16,7 @@ const commands = @import("../commands/root.zig");
 const WriteError = commands.WriteError;
 const Collation = @import("../commands/collation.zig").Collation;
 const ErrorResponse = @import("./ErrorResponse.zig").ErrorResponse;
+const WriteResponseUnion = @import("../ResponseUnion.zig").WriteResponseUnion;
 
 const opcode = @import("../protocol/opcode.zig");
 const SequenceSection = opcode.SequenceSection;
@@ -397,11 +398,7 @@ pub const BulkWriteOpsChainable = struct {
         return self.add(op);
     }
 
-    pub fn exec(self: *BulkWriteOpsChainable, options: BulkWriteOptions) !union(enum) {
-        response: *BulkWriteResponse,
-        write_errors: *BulkWriteErrorResponse,
-        err: *ErrorResponse,
-    } {
+    pub fn exec(self: *BulkWriteOpsChainable, options: BulkWriteOptions) !WriteResponseUnion(BulkWriteResponse, ErrorResponse, BulkWriteErrorResponse) {
         if (self.err) |err| {
             return err;
         }
@@ -416,7 +413,7 @@ pub const BulkWriteOpsChainable = struct {
             .writeConcern = options.writeConcern,
         };
 
-        self.collection.server_api.addToCommand(&command);
+        self.collection.database.server_api.addToCommand(&command);
 
         const command_serialized = try BsonDocument.fromObject(arena_allocator, @TypeOf(command), command);
 
@@ -440,12 +437,7 @@ pub const BulkWriteOpsChainable = struct {
         const command_op_msg = try opcode.OpMsg.initSequence(arena_allocator, command_serialized, sequences_slice, 2, 0, .{});
         defer command_op_msg.deinit(arena_allocator);
 
-        const result = try self.collection.runWriteCommandOpcode(command_op_msg, BulkWriteResponse, BulkWriteErrorResponse);
-        return switch (result) {
-            .err => .{ .err = result.err },
-            .response => .{ .response = result.response },
-            .write_errors => .{ .write_errors = result.write_errors },
-        };
+        return try self.collection.database.runWriteCommandOpcode(command_op_msg, BulkWriteResponse, BulkWriteErrorResponse);
     }
 };
 

@@ -1,4 +1,6 @@
 const std = @import("std");
+const ErrorResponse = @import("./commands/ErrorResponse.zig").ErrorResponse;
+const CursorIterator = @import("./commands/CursorIterator.zig").CursorIterator;
 
 pub fn ResponseUnion(comptime ResponseType: type, comptime ErrorResponseType: type) type {
     const fields = [_]std.builtin.Type.UnionField{
@@ -30,10 +32,10 @@ pub fn ResponseUnion(comptime ResponseType: type, comptime ErrorResponseType: ty
     });
 }
 
-pub fn WriteResponseUnion(comptime ResponseType: type, comptime ErrorResponseType: type, comptime ResponseErrorType: type) type {
+pub fn WriteResponseUnion(comptime ResponseType: type, comptime ErrorResponseType: type, comptime WriteErrorType: type) type {
     const fields = [_]std.builtin.Type.UnionField{
         .{ .name = "response", .type = *ResponseType, .alignment = @alignOf(*ResponseType) },
-        .{ .name = "write_errors", .type = *ResponseErrorType, .alignment = @alignOf(*ResponseErrorType) },
+        .{ .name = "write_errors", .type = *WriteErrorType, .alignment = @alignOf(*WriteErrorType) },
         .{ .name = "err", .type = *ErrorResponseType, .alignment = @alignOf(*ErrorResponseType) },
     };
 
@@ -61,3 +63,8 @@ pub fn WriteResponseUnion(comptime ResponseType: type, comptime ErrorResponseTyp
         },
     });
 }
+
+pub const CursorResponseUnion = union(enum) {
+    cursor: CursorIterator,
+    err: *ErrorResponse,
+};

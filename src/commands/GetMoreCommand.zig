@@ -29,14 +29,7 @@ pub const GetMoreCommand = struct {
 
     readPreference: ?[]const u8 = null,
     timeoutMS: ?i64 = null,
-
-    pub fn deinit(self: *GetMoreCommand, allocator: Allocator) void {
-        if (self.comment) |comment| {
-            if (comment == .document) {
-                comment.document.deinit(allocator);
-            }
-        }
-    }
+    lsid: ?*const BsonDocument = null,
 
     pub fn make(
         collection_name: []const u8,

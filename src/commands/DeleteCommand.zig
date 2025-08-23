@@ -42,7 +42,7 @@ pub const DeleteCommand = struct {
     // RunCommandOptions
     readPreference: ?[]const u8 = null,
     timeoutMS: ?i64 = null,
-    // session: ?ClientSession = null,
+    lsid: ?*BsonDocument = null,
 
     pub fn deinit(self: *const DeleteCommand, allocator: Allocator) void {
         for (self.deletes) |delete| delete.q.deinit(allocator);

@@ -4,6 +4,7 @@ const time = std.time;
 const net = std.net;
 const Thread = std.Thread;
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 
 const commands = @import("commands/root.zig");
 const connection_stream = @import("connection/ConnectionStream.zig");
@@ -29,6 +30,19 @@ const sasl_commands = @import("./auth/sasl.zig");
 const SaslCommandResponse = sasl_commands.SaslCommandResponse;
 const utils = @import("utils.zig");
 
+const ServerSessionPool = @import("./sessions/ServerSessionPool.zig").ServerSessionPool;
+const ServerSession = @import("./sessions/ServerSessionPool.zig").ServerSession;
+const SessionId = @import("./sessions/SessionId.zig").SessionId;
+const ClientSession = @import("./sessions/ClientSession.zig").ClientSession;
+const SessionOptions = @import("./sessions/ClientSession.zig").SessionOptions;
+const EndSessionsCommand = commands.EndSessionsCommand;
+const EndSessionsCommandResponse = commands.EndSessionsCommandResponse;
+const WriteResponseUnion = @import("./ResponseUnion.zig").WriteResponseUnion;
+const BsonDocument = bson.BsonDocument;
+const RequestIdGenerator = @import("./commands/RequestIdGenerator.zig");
+const opcode = @import("./protocol/opcode.zig");
+const ResponseUnion = @import("./ResponseUnion.zig").ResponseUnion;
+
 pub const Database = struct {
     allocator: Allocator,
     db_name: []const u8,
@@ -38,6 +52,8 @@ pub const Database = struct {
     pool: *std.Thread.Pool,
     server_api: ServerApi,
     client_config: ClientConfig,
+
+    server_session_pool: ServerSessionPool,
 
     pub fn init(allocator: Allocator, conn_str: *ConnectionString, server_api: ServerApi) !Database {
         bson.bson_types.BsonObjectId.initializeGenerator();
@@ -61,10 +77,18 @@ pub const Database = struct {
             .pool = pool,
             .server_api = server_api,
             .client_config = try ClientConfig.init(allocator, &conn_str.hosts),
+
+            .server_session_pool = ServerSessionPool.init(allocator),
         };
     }
 
     pub fn deinit(self: *Database) void {
+        self.endSessions() catch |err| {
+            std.debug.print("error ending sessions: {any}\n", .{err});
+        };
+
+        self.server_session_pool.deinit();
+
         self.allocator.free(self.db_name);
         self.stream.deinit();
         self.topology_description.deinit(self.allocator);
@@ -115,6 +139,41 @@ pub const Database = struct {
         return BulkWriteOpsChainable.init(c);
     }
 
+    pub fn startClientSession(self: *Database, options: ?*const SessionOptions) !*ClientSession {
+        const client_session = try self.allocator.create(ClientSession);
+        client_session.* = ClientSession{
+            .server_session = null,
+            .options = options,
+            .mode = .Explicit,
+        };
+        return client_session;
+    }
+
+    fn associateServerSession(self: *Database, client_session: *ClientSession) !void {
+        if (client_session.server_session != null) return;
+        const server_session = try self.server_session_pool.startSession();
+        client_session.server_session = server_session;
+    }
+
+    fn endSessions(self: *Database) !void {
+        const sessions = try self.server_session_pool.toOwnedSessions();
+        defer self.allocator.free(sessions);
+        if (sessions.len == 0) {
+            return;
+        }
+
+        var arena = ArenaAllocator.init(self.allocator);
+        defer arena.deinit();
+        const arena_allocator = arena.allocator();
+
+        var end_sessions_command = try EndSessionsCommand.make(arena_allocator, sessions);
+
+        // drivers must ignore any errors returned by the endSessions command
+        _ = self.runCommandWithOptionalSession(arena_allocator, null, &end_sessions_command, RunCommandOptions{}, EndSessionsCommandResponse) catch {
+            // ignore errors
+        };
+    }
+
     pub fn handshake(self: *Database, current_server_description: *ServerDescription, conn_stream: *ConnectionStream, credentials: ?MongoCredential) !void {
         const allocator = self.allocator;
 
@@ -152,7 +211,7 @@ pub const Database = struct {
     }
 
     fn authConversation(self: *Database, allocator: Allocator, conn_stream: *ConnectionStream, creds: MongoCredential) !void {
-        var arena = std.heap.ArenaAllocator.init(allocator);
+        var arena = ArenaAllocator.init(allocator);
         defer arena.deinit();
         const arena_allocator = arena.allocator();
 
@@ -211,6 +270,7 @@ pub const Database = struct {
 
 
         self.topology_description.logical_session_timeout_minutes = hello_response.logicalSessionTimeoutMinutes;
+        self.server_session_pool.logical_session_timeout_minutes = hello_response.logicalSessionTimeoutMinutes;
 
 
         switch (self.topology_description.type) {
@@ -247,5 +307,156 @@ pub const Database = struct {
             },
         }
 
+    }
+
+    pub fn isServerSupportSessions(self: *const Database) bool {
+        return self.topology_description.logical_session_timeout_minutes != null;
+    }
+
+    pub fn tryGetSession(self: *Database, options: RunCommandOptions) !?*ClientSession {
+        if (options.session) |explicit_session| {
+            if (!self.isServerSupportSessions()) {
+                return error.ServerDoesNotSupportSessions;
+            }
+            return explicit_session;
+        } else {
+            if (!self.isServerSupportSessions()) {
+                return null;
+            }
+
+            var implicit_session = try self.startClientSession(null);
+            implicit_session.mode = .Implicit;
+            return implicit_session;
+        }
+    }
+
+    pub fn runWriteCommand(self: *Database, command: anytype, options: RunCommandOptions, comptime ResponseType: type, comptime WriteErrorType: type) !WriteResponseUnion(ResponseType, ErrorResponse, WriteErrorType) {
+        const client_session = try self.tryGetSession(options);
+        defer if (client_session) |session| {
+            if (session.mode == .Implicit) {
+                session.deinit(self.allocator);
+            }
+        };
+
+        return self.runWriteCommandWithOptionalSession(client_session, command, options, ResponseType, WriteErrorType);
+    }
+
+    fn runWriteCommandWithOptionalSession(self: *Database, client_session: ?*ClientSession, command: anytype, options: RunCommandOptions, comptime ResponseType: type, comptime WriteErrorType: type) !WriteResponseUnion(ResponseType, ErrorResponse, WriteErrorType) {
+        comptime {
+            const command_type_info = @typeInfo(@TypeOf(command));
+            if (command_type_info != .pointer) {
+                @compileError("runCommand command param must be a pointer to a struct");
+            }
+            if (!@hasField(@TypeOf(command.*), "$db")) {
+                @compileError("runCommand command param must have a @$db field");
+            }
+            if (!@hasDecl(ResponseType, "parseBson")) {
+                @compileError("runCommand command param type must have a parseBson method");
+            }
+        }
+
+        if (client_session) |session| {
+            if (!self.isServerSupportSessions()) {
+                return error.ServerDoesNotSupportSessions;
+            }
+            // TODO: if unacknowledged, raise error
+
+            try self.associateServerSession(session);
+            try session.addToCommand(command);
+        }
+        options.addToCommand(command);
+
+        self.server_api.addToCommand(command);
+
+        const command_serialized = try BsonDocument.fromObject(self.allocator, @TypeOf(command), command);
+        errdefer command_serialized.deinit(self.allocator);
+
+        const request_id = RequestIdGenerator.getNextRequestId();
+        const command_op_msg = try opcode.OpMsg.init(self.allocator, command_serialized, request_id, 0, .{});
+        defer command_op_msg.deinit(self.allocator);
+
+        return try self.runWriteCommandOpcode(command_op_msg, ResponseType, WriteErrorType);
+    }
+
+    pub fn runWriteCommandOpcode(self: *Database, command_op_msg: *const opcode.OpMsg, comptime ResponseType: type, comptime WriteErrorType: type) !WriteResponseUnion(ResponseType, ErrorResponse, WriteErrorType) {
+        const response = try self.stream.send(self.allocator, command_op_msg);
+        defer response.deinit(self.allocator);
+
+        if (try ErrorResponse.isError(self.allocator, response.section_document.document)) {
+            const error_response = try ErrorResponse.parseBson(self.allocator, response.section_document.document);
+            errdefer error_response.deinit(self.allocator);
+            return .{ .err = error_response };
+        }
+
+        if (try WriteErrorType.isError(self.allocator, response.section_document.document)) {
+            const response_with_write_errors = try WriteErrorType.parseBson(self.allocator, response.section_document.document);
+            errdefer response_with_write_errors.deinit(self.allocator);
+            return .{ .write_errors = response_with_write_errors };
+        }
+
+        return .{ .response = try ResponseType.parseBson(self.allocator, response.section_document.document) };
+    }
+
+    pub fn runCommand(self: *Database, allocator: Allocator, command: anytype, options: RunCommandOptions, comptime ResponseType: type) !ResponseUnion(ResponseType, ErrorResponse) {
+        const client_session = try self.tryGetSession(options);
+        defer if (client_session) |session| {
+            if (session.mode == .Implicit) {
+                session.deinit(self.allocator);
+            }
+        };
+
+        const result = self.runCommandWithOptionalSession(allocator, client_session, command, options, ResponseType);
+        return result;
+    }
+
+    fn runCommandWithOptionalSession(self: *Database, allocator: Allocator, client_session: ?*ClientSession, command: anytype, options: RunCommandOptions, comptime ResponseType: type) !ResponseUnion(ResponseType, ErrorResponse) {
+        comptime {
+            const command_type_info = @typeInfo(@TypeOf(command));
+            if (command_type_info != .pointer) {
+                @compileError("runCommand command param must be a pointer to a struct");
+            }
+            if (!@hasField(@TypeOf(command.*), "$db")) {
+                @compileError("runCommand command param must have a @$db field");
+            }
+            if (!@hasDecl(ResponseType, "parseBson")) {
+                @compileError("runCommand command param type must have a parseBson method");
+            }
+        }
+
+        if (client_session) |session| {
+            if (!self.isServerSupportSessions()) {
+                return error.ServerDoesNotSupportSessions;
+            }
+
+            try self.associateServerSession(session);
+            try session.addToCommand(command);
+
+        }
+
+        options.addToCommand(command);
+
+        self.server_api.addToCommand(command);
+
+        var command_serialized = try BsonDocument.fromObject(allocator, @TypeOf(command), command);
+        errdefer command_serialized.deinit(allocator);
+
+
+        const request_id = RequestIdGenerator.getNextRequestId();
+        const command_op_msg = try opcode.OpMsg.init(allocator, command_serialized, request_id, 0, .{});
+        defer command_op_msg.deinit(allocator);
+
+        const response = try self.stream.send(allocator, command_op_msg);
+        defer response.deinit(allocator);
+
+
+        if (try ErrorResponse.isError(allocator, response.section_document.document)) {
+            const error_response = try response.section_document.document.toObject(self.allocator, ErrorResponse, .{ .ignore_unknown_fields = true });
+            errdefer error_response.deinit(self.allocator);
+            return .{ .err = error_response };
+        }
+
+        const response_parsed = try response.section_document.document.toObject(allocator, ResponseType, .{ .ignore_unknown_fields = true });
+        errdefer response_parsed.deinit(allocator);
+        return .{ .response = response_parsed };
     }
 };

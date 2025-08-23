@@ -82,9 +82,8 @@ pub const FindCommand = struct {
     apiDeprecationErrors: ?bool = null,
 
     // RunCommandOptions
-    readPreference: ?[]const u8 = null,
     timeoutMS: ?i64 = null,
-    // session: ?ClientSession = null,
+    lsid: ?*const BsonDocument = null,
 
     pub fn deinit(self: *const FindCommand, allocator: Allocator) void {
         self.filter.deinit(allocator);
@@ -265,7 +264,6 @@ pub const FindOptions = struct {
     // rawData: ?bool = null,
 
     pub fn addToCommand(self: *const FindOptions, command_data: *FindCommand) void {
-        if (self.run_command_options) |run_command_options| run_command_options.addToCommand(command_data);
 
         if (self.allowDiskUse) |allowDiskUse| command_data.allowDiskUse = allowDiskUse;
         if (self.allowPartialResults) |allowPartialResults| command_data.allowPartialResults = allowPartialResults;

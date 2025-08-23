@@ -9,6 +9,7 @@ pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
 
 pub const KillCursorsCommand = struct {
     pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
+    pub const no_lsid = void{};
 
     /// The name of the collection.
     killCursors: []const u8,

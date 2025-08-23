@@ -54,7 +54,6 @@ pub const EstimatedDocumentCountOptions = struct {
     comment: ?Comment = null,
 
     pub fn addToCommand(self: *const EstimatedDocumentCountOptions, command: *CountCommand) void {
-        if (self.run_command_options) |run_command_options| run_command_options.addToCommand(command);
         command.comment = self.comment;
     }
 };

@@ -11,6 +11,7 @@ const Hint = @import("../protocol/hint.zig").Hint;
 const Comment = @import("../protocol/comment.zig").Comment;
 const ResponseWithWriteErrors = @import("./WriteError.zig").ResponseWithWriteErrors;
 const WriteResponseUnion = @import("../ResponseUnion.zig").WriteResponseUnion;
+const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
 
 pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
 
@@ -51,7 +52,7 @@ pub const UpdateCommand = struct {
     // RunCommandOptions
     readPreference: ?[]const u8 = null,
     timeoutMS: ?i64 = null,
-    // session: ?ClientSession = null,
+    lsid: ?*BsonDocument = null,
 
     pub fn deinit(self: *const UpdateCommand, allocator: Allocator) void {
         for (self.updates) |update| update.deinit(allocator);
@@ -250,6 +251,8 @@ pub const UpdateCommandResponse = struct {
 };
 
 pub const UpdateOneOptions = struct {
+    run_command_options: ?RunCommandOptions = null,
+
     arrayFilters: ?[]bson.BsonDocument = null,
 
     collation: ?Collation = null,
@@ -269,6 +272,8 @@ pub const UpdateOneOptions = struct {
 };
 
 pub const UpdateManyOptions = struct {
+    run_command_options: ?RunCommandOptions = null,
+
     arrayFilters: ?[]bson.BsonDocument = null,
 
     collation: ?Collation = null,
@@ -335,7 +340,7 @@ pub const UpdateCommandChainable = struct {
 
         options.addToCommand(&command);
 
-        return try self.collection.runWriteCommand(&command, null, UpdateCommandResponse, ResponseWithWriteErrors);
+        return try self.collection.database.runWriteCommand(&command, options.run_command_options orelse RunCommandOptions{}, UpdateCommandResponse, ResponseWithWriteErrors);
     }
 };
 
