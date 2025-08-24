@@ -57,7 +57,7 @@ pub const ServerSessionPool = struct {
         const session = try allocator.create(ServerSession);
         session.* = ServerSession{
             .session_id = session_id,
-            .last_used = 0,
+            .last_used = std.time.milliTimestamp(),
             .server_session_pool = self,
         };
         return session;

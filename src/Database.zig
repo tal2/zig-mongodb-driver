@@ -363,6 +363,7 @@ pub const Database = struct {
 
             try self.associateServerSession(session);
             try session.addToCommand(command);
+            session.server_session.?.last_used = time.milliTimestamp();
         }
         options.addToCommand(command);
 
@@ -431,6 +432,7 @@ pub const Database = struct {
             try self.associateServerSession(session);
             try session.addToCommand(command);
 
+            session.server_session.?.last_used = time.milliTimestamp();
         }
 
         options.addToCommand(command);
