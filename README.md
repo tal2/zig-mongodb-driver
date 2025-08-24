@@ -1,6 +1,70 @@
 # Mongodb Driver - written in Zig
 
-Examples:
+## Overview
+
+- A driver for interacting with mongodb servers written in Zig
+
+## Status: ⚠️ work-in-progress
+
+zig version: 0.14.1
+
+### compatibility
+* currently aiming for mongodb v7.x and v8.x
+
+### connectivity
+- [x] single server
+- [ ] replicaset
+- [ ] sharded
+- [x] heartbeat
+- [ ] server selection
+
+### concurrency
+- [x] single-thread
+- [ ] multi-thread
+
+### authentication
+- [x] SCRAM-SHA-256
+- [x] SCRAM-SHA-1
+- [x] SASL Mechanisms
+- [ ] MONGODB-X509
+- [ ] PLAIN
+- [ ] GSSAPI
+- [ ] MONGODB-AWS
+- [ ] MONGODB-OIDC
+
+### basic commands
+- [x]  generic run command
+- [x]  insertOne
+- [x]  insertMany
+- [x]  findOne
+- [x]  find
+- [x]  updateOne
+- [x]  updateMany
+- [x]  deleteOne
+- [x]  deleteMany
+- [x]  replaceOne
+- [x]  countDocuments
+- [x]  estimatedDocumentCount
+
+### additional commands
+- [x] kill cursors
+- [x] end sessions
+
+### advanced operations
+- [x] aggregation pipeline
+- [x] bulk write operations
+- [x] sessions (implicit & explicit)
+- [ ] transactions
+- [ ] timeouts
+- [ ] write concern
+
+### compression support
+- [x] no compression
+- [ ] snappy
+- [ ] zlib
+- [ ] zstd
+
+## Commands:
 
 - [Initialize and Connect](#initialize-and-connect)
 - [Insert Command](#insert-command)
@@ -13,8 +77,6 @@ Examples:
 - [Delete Command](#delete-command)
 - [Find Command](#find-command)
 - [Aggregate Command](#aggregate-command)
-
-## Examples
 
 ### Initialize and Connect
 
@@ -30,7 +92,15 @@ Examples:
   var db = try Database.init(allocator, &conn_str, server_api); // server api is optional, can be null
   defer db.deinit();
 
-  try db.connect();
+  const credentials = MongoCredential{
+    .username = "...",
+    .source = "...",
+    .password = "...",
+    .mechanism = .SCRAM_SHA_256,
+    .mechanism_properties = null,
+  };
+
+  try db.connect(credentials);
 ```
 
 ### Insert Command
@@ -60,7 +130,15 @@ Examples:
 
 ```zig
   const count_estimate = try db.collection(collection_name).estimatedDocumentCount(.{});
-
+  switch (count_estimate) {
+    .n => |n| {
+        std.debug.print("estimated count: {d}\n", .{n});
+    },
+    .err => |err| {
+        defer err.deinit(gpa);
+        // ...
+    },
+  }
 ```
 
 ### Replace Document Command
@@ -68,7 +146,7 @@ Examples:
 ```zig
   const filter = .{ .name = "obj1-original" };
   const replacement = .{ .name = "obj1-replaced", .value = 42, .replaced = true };
-  const replace_response = try collection.replaceOne(filter, replacement, .{});
+  const replace_response = try db.collection(collection_name).replaceOne(filter, replacement, .{});
   switch (replace_response) {
     .response => |response| {
         defer response.deinit(allocator);
@@ -90,7 +168,7 @@ Examples:
 ```zig
   const filter = .{ .name = "obj1" };
   const update = .{ .name = "obj1-updated", .updated = true };
-  const update_response = try collection.updateOne(filter, update, .{});
+  const update_response = try db.collection(collection_name).updateOne(filter, update, .{});
   switch (update_response) {
     .response => |response| {
         defer response.deinit(allocator);
@@ -112,7 +190,7 @@ Examples:
 ```zig
   const filter = .{ .status = "pending" };
   const update = .{ .@"$set" = .{ .status = "completed" } };
-  const update_response = try collection.updateMany(filter, update, .{ .upsert = true });
+  const update_response = try db.collection(collection_name).updateMany(filter, update, .{ .upsert = true });
   switch (update_response) {
     .response => |response| {
         defer response.deinit(allocator);
@@ -132,7 +210,7 @@ Examples:
 ### Update Many Command - chainable
 
 ```zig
-  var update_chain = collection.updateChain();
+  var update_chain = db.collection(collection_name).updateChain();
   defer update_chain.deinit();
 
   const update_chain_result = try update_chain
@@ -143,6 +221,10 @@ Examples:
   switch (update_chain_result) {
     .response => |response| {
         defer response.deinit(allocator);
+        // ...
+    },
+    .write_errors => |write_errors| {
+        defer write_errors.deinit(allocator);
         // ...
     },
     .err => |err| {
@@ -173,7 +255,7 @@ Examples:
 
 ```zig
   const delete_filter = .{ .name = "doc1" };
-  const delete_response = try db.collection(collection_name).delete(.one, delete_filter, .{});
+  const delete_response = try db.collection(collection_name).deleteOne(delete_filter, .{});
   switch (delete_response) {
     .response => |response| {
         defer response.deinit(allocator);
@@ -194,7 +276,7 @@ Examples:
 
 ```zig
   const delete_filter = .{ .name = "doc1" };
-  const delete_response = try db.collection(collection_name).delete(.all, delete_filter, .{});
+  const delete_response = try db.collection(collection_name).deleteMany(delete_filter, .{});
   switch (delete_response) {
     .response => |response| {
         defer response.deinit(allocator);
@@ -208,6 +290,7 @@ Examples:
         defer err.deinit(allocator);
         // ...
     },
+  }
 ```
 
 ### Find Command
@@ -216,26 +299,27 @@ Examples:
 
 ```zig
   const filter = .{ .name = .{ .@"$ne" = null } };
-  var response = try db.collection(collection_name).find(filter, .all, .{
+  const response = try db.collection(collection_name).find(filter, .all, .{
    .batchSize = 2,
    .limit = 6,
   });
-    switch (result) {
-      .cursor => {
-          var cursor = result.cursor;
-          defer cursor.deinit();
-          while (try cursor.next()) |batch| {
-            for (batch) |doc| {
-                defer doc.deinit(allocator);
-                // do something with doc
-            }
+  switch (response) {
+    .cursor => {
+        var cursor = response.cursor;
+        defer cursor.deinit();
+        while (try cursor.next()) |batch| {
+          for (batch) |doc| {
+              defer doc.deinit(allocator);
+              // do something with doc
           }
-          try cursor.release(); // optionally call to kill cursor, if   not used iterator till the end
-      },
-      .err => |err| {
-        defer err.deinit(allocator);
-        // ...
-      },
+        }
+        try cursor.release(); // optionally call to kill cursor, if iterator not used till the end
+    },
+    .err => |err| {
+      defer err.deinit(allocator);
+      // ...
+    },
+  }
 ```
 
 #### Find Command - find one
@@ -271,7 +355,8 @@ Examples:
         std.debug.print("Error building pipeline: {}\n", .{err});
         return;
      };
-  var response = try collection.aggregate(pipeline, .{}, .{});
+
+  const response = try collection.aggregate(pipeline, .{}, .{});
   switch (response) {
     .cursor => {
         var cursor = response.cursor;
