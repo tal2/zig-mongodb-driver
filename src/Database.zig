@@ -130,7 +130,7 @@ pub const Database = struct {
     }
 
     pub fn collection(self: *Database, collection_name: []const u8) Collection {
-        return Collection.init(self, collection_name, self.server_api);
+        return Collection.init(self, collection_name);
     }
 
     pub fn bulkWriteChain(self: *Database) !BulkWriteOpsChainable {
