@@ -5,14 +5,14 @@ const bson = @import("bson");
 const BsonDocument = bson.BsonDocument;
 const BaseSessionId = @import("./SessionId.zig").BaseSessionId;
 const SessionId = @import("./SessionId.zig").SessionId;
-const ServerSession = @import("./ServerSessionPool.zig").ServerSession;
+const ServerSession = @import("./ServerSession.zig").ServerSession;
 const OkResponse = @import("../commands/OkResponse.zig").OkResponse;
 const ReadConcern = @import("../commands/ReadConcern.zig").ReadConcern;
 const ReadPreference = @import("../commands/ReadPreference.zig").ReadPreference;
 
 /// Not thread safe
 pub const ClientSession = struct {
-    pub const ClientSessionMode = enum {
+    pub const Mode = enum {
         Implicit,
         ImplicitCursor,
         Explicit,
@@ -20,7 +20,7 @@ pub const ClientSession = struct {
 
     server_session: ?*ServerSession,
     options: ?*const SessionOptions,
-    mode: ClientSessionMode,
+    mode: Mode,
     /// most recent cluster time seen by the session
     cluster_time: ?BsonDocument = null,
 
@@ -109,7 +109,7 @@ pub const SessionOptions = struct {
     }
 };
 
-const RefreshSessionsCommand = struct {
+pub const RefreshSessionsCommand = struct {
     pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
 
     refreshSessions: []const *BaseSessionId,
