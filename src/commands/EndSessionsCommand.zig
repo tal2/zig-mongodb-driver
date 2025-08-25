@@ -3,7 +3,7 @@ const Allocator = std.mem.Allocator;
 
 const bson = @import("bson");
 const BsonDocument = bson.BsonDocument;
-const ServerSession = @import("../sessions/ServerSessionPool.zig").ServerSession;
+const ServerSession = @import("../sessions/ServerSession.zig").ServerSession;
 const OkResponse = @import("./OkResponse.zig").OkResponse;
 
 pub const EndSessionsCommand = struct {
