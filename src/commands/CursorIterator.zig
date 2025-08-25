@@ -65,7 +65,7 @@ pub const CursorIterator = struct {
             var session = self.session.?;
             self.session = null;
             if (session.mode == .ImplicitCursor) {
-                session.deinit(self.allocator);
+                session.deinit();
             }
         }
         if (self.get_more_command != null) {
@@ -97,7 +97,7 @@ pub const CursorIterator = struct {
                         var session = self.session.?;
                         self.session = null;
                         if (session.mode == .ImplicitCursor) {
-                            session.deinit(self.allocator);
+                            session.deinit();
                         }
                     }
 

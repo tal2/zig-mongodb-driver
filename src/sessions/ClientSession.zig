@@ -18,11 +18,17 @@ pub const ClientSession = struct {
         Explicit,
     };
 
+    allocator: std.mem.Allocator,
     server_session: ?*ServerSession,
     options: ?*const SessionOptions,
     mode: Mode,
     /// most recent cluster time seen by the session
     cluster_time: ?BsonDocument = null,
+
+    pub fn deinit(self: *ClientSession) void {
+        self.endSession() catch {};
+        self.allocator.destroy(self);
+    }
 
     pub fn advanceClusterTime(self: *ClientSession, cluster_time: BsonDocument) void {
         _ = self;
@@ -38,10 +44,6 @@ pub const ClientSession = struct {
         }
     }
 
-    pub fn deinit(self: *ClientSession, allocator: std.mem.Allocator) void {
-        self.endSession() catch {};
-        allocator.destroy(self);
-    }
 
     pub fn addToCommand(self: *const ClientSession, command: anytype) !void {
         comptime {

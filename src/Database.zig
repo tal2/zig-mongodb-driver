@@ -139,9 +139,10 @@ pub const Database = struct {
         return BulkWriteOpsChainable.init(c);
     }
 
-    pub fn startClientSession(self: *Database, options: ?*const SessionOptions) !*ClientSession {
+    pub fn startSession(self: *Database, options: ?*const SessionOptions) !*ClientSession {
         const client_session = try self.allocator.create(ClientSession);
         client_session.* = ClientSession{
+            .allocator = self.allocator,
             .server_session = null,
             .options = options,
             .mode = .Explicit,
@@ -324,7 +325,7 @@ pub const Database = struct {
                 return null;
             }
 
-            var implicit_session = try self.startClientSession(null);
+            var implicit_session = try self.startSession(null);
             implicit_session.mode = .Implicit;
             return implicit_session;
         }
@@ -334,7 +335,7 @@ pub const Database = struct {
         const client_session = try self.tryGetSession(options);
         defer if (client_session) |session| {
             if (session.mode == .Implicit) {
-                session.deinit(self.allocator);
+                session.deinit();
             }
         };
 
@@ -402,7 +403,7 @@ pub const Database = struct {
         const client_session = try self.tryGetSession(options);
         defer if (client_session) |session| {
             if (session.mode == .Implicit) {
-                session.deinit(self.allocator);
+                session.deinit();
             }
         };
 
