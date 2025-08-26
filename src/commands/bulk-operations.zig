@@ -88,7 +88,7 @@ pub const BulkWriteOpsChainable = struct {
     pub fn init(collection: *const Collection) BulkWriteOpsChainable {
         return .{
             .collection = collection,
-            .operations = ArrayList(*const BsonDocument).init(collection.allocator),
+            .operations = .empty,
             .ns_info_map = StringHashMap(u32).init(collection.allocator),
             .arena = ArenaAllocator.init(collection.allocator),
         };
@@ -96,7 +96,7 @@ pub const BulkWriteOpsChainable = struct {
 
     pub fn deinit(self: *BulkWriteOpsChainable) void {
         self.arena.deinit();
-        self.operations.deinit();
+        self.operations.deinit(self.collection.allocator);
         self.ns_info_map.deinit();
 
         self.collection.allocator.destroy(self.collection);
@@ -134,7 +134,7 @@ pub const BulkWriteOpsChainable = struct {
             return self;
         };
 
-        self.operations.append(op_serialized) catch |err| {
+        self.operations.append(self.collection.allocator, op_serialized) catch |err| {
             self.err = err;
             return self;
         };
@@ -405,7 +405,7 @@ pub const BulkWriteOpsChainable = struct {
 
         const arena_allocator = self.arena.allocator();
 
-        const ops = try self.operations.toOwnedSlice();
+        const ops = try self.operations.toOwnedSlice(self.collection.allocator);
         defer self.collection.allocator.free(ops);
 
         var command: BulkWriteOps = .{
@@ -426,13 +426,13 @@ pub const BulkWriteOpsChainable = struct {
             ns_map.appendAssumeCapacity(ns_doc);
         }
 
-        const ns_info_docs = try ns_map.toOwnedSlice();
+        const ns_info_docs = try ns_map.toOwnedSlice(arena_allocator);
         const ns_info_sequence = try SequenceSection.init(arena_allocator, "nsInfo", ns_info_docs);
 
-        var sequences = ArrayList(*const SequenceSection).init(arena_allocator);
-        try sequences.append(ns_info_sequence);
-        try sequences.append(ops_sequence);
-        const sequences_slice = try sequences.toOwnedSlice();
+        var sequences = try ArrayList(*const SequenceSection).initCapacity(arena_allocator, 2);
+        sequences.appendAssumeCapacity(ns_info_sequence);
+        sequences.appendAssumeCapacity(ops_sequence);
+        const sequences_slice = try sequences.toOwnedSlice(arena_allocator);
 
         const command_op_msg = try opcode.OpMsg.initSequence(arena_allocator, command_serialized, sequences_slice, 2, 0, .{});
         defer command_op_msg.deinit(arena_allocator);

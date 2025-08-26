@@ -14,7 +14,7 @@ pub const PipelineBuilder = struct {
     pub fn init(allocator: Allocator) PipelineBuilder {
         return PipelineBuilder{
             .allocator = allocator,
-            .pipeline = Pipeline.init(allocator),
+            .pipeline = .empty,
             .error_at_stage_index = null,
         };
     }
@@ -173,7 +173,7 @@ pub const PipelineBuilder = struct {
         };
         errdefer stage_parsed.deinit(self.allocator);
 
-        self.pipeline.append(stage_parsed) catch |err| {
+        self.pipeline.append(self.allocator, stage_parsed) catch |err| {
             std.debug.print("Error appending stage to pipeline: {}\n", .{err});
             self.error_at_stage_index = self.pipeline.items.len;
             return self;
@@ -186,50 +186,13 @@ pub const PipelineBuilder = struct {
             return error.InvalidPipeline;
         }
 
-        return try self.pipeline.toOwnedSlice();
+        return try self.pipeline.toOwnedSlice(self.allocator);
     }
 
-    pub fn deinit(self: *const PipelineBuilder) void {
+    pub fn deinit(self: *PipelineBuilder) void {
         for (self.pipeline.items) |item| {
             item.deinit(self.allocator);
         }
-        self.pipeline.deinit();
-        // self.allocator.destroy(self);
+        self.pipeline.deinit(self.allocator);
     }
-};
-
-pub const Stage = struct {
-    pub const AddFieldsStage = struct {
-        newField1: bson.BsonDocument,
-        newField2: bson.BsonDocument,
-    };
-
-    pub const SetStage = struct {
-        newField1: bson.BsonDocument,
-        newField2: bson.BsonDocument,
-    };
-
-    pub const ProjectStage = struct {
-        field1: union(enum) {
-            include: bool,
-            expression: bson.BsonDocument,
-        },
-        field2: union(enum) {
-            include: bool,
-            expression: bson.BsonDocument,
-        },
-    };
-
-    pub const Tag = enum {
-        addFields,
-        set,
-        project,
-    };
-
-    tag: Tag,
-    data: union(Tag) {
-        addFields: AddFieldsStage,
-        set: SetStage,
-        project: ProjectStage,
-    },
 };

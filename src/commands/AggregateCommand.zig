@@ -11,7 +11,6 @@ const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
 const Allocator = std.mem.Allocator;
 const BsonDocument = bson.BsonDocument;
 
-
 pub const AggregateCommand = struct {
     pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
 
@@ -97,7 +96,7 @@ pub const AggregateCommand = struct {
         var command = AggregateCommand{
             .aggregate = collection_name,
             .@"$db" = db_name,
-            .pipeline = try pipeline_parsed.toOwnedSlice(),
+            .pipeline = try pipeline_parsed.toOwnedSlice(allocator),
             .cursor = cursor_parsed,
         };
 

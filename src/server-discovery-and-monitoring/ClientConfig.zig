@@ -28,6 +28,6 @@ pub const ClientConfig = struct {
         for (self.seeds.items) |seed| {
             seed.deinit(allocator);
         }
-        self.seeds.deinit();
+        self.seeds.deinit(allocator);
     }
 };

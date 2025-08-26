@@ -15,7 +15,6 @@ const RunCommandOptions = @import("./RunCommandOptions.zig").RunCommandOptions;
 
 pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
 
-
 /// @see https://www.mongodb.com/docs/manual/reference/command/update/
 pub const UpdateCommand = struct {
     pub const null_ignored_field_names: bson.NullIgnoredFieldNames = bson.NullIgnoredFieldNames.all_optional_fields;
@@ -327,10 +326,7 @@ pub const UpdateCommandChainable = struct {
         }
 
         const update_statements = try self.builder.toOwnedSlice();
-        defer {
-            self.collection.allocator.free(update_statements);
-            self.builder.deinit();
-        }
+        defer self.builder.deinit();
 
         var command: UpdateCommand = .{
             .update = self.collection.collection_name,
@@ -345,25 +341,24 @@ pub const UpdateCommandChainable = struct {
 };
 
 pub const UpdateStatementBuilder = struct {
-    allocator: std.mem.Allocator,
     arena: std.heap.ArenaAllocator,
     update_statements: ArrayList(UpdateStatement),
 
     pub fn init(allocator: std.mem.Allocator) UpdateStatementBuilder {
         return .{
-            .allocator = allocator,
             .arena = std.heap.ArenaAllocator.init(allocator),
-            .update_statements = ArrayList(UpdateStatement).init(allocator),
+            .update_statements = .empty,
         };
     }
 
     pub fn deinit(self: *UpdateStatementBuilder) void {
-        self.update_statements.deinit();
         self.arena.deinit();
     }
 
     pub fn toOwnedSlice(self: *UpdateStatementBuilder) Allocator.Error![]UpdateStatement {
-        return try self.update_statements.toOwnedSlice();
+        const allocator = self.arena.allocator();
+
+        return try self.update_statements.toOwnedSlice(allocator);
     }
 
     pub fn add(self: *UpdateStatementBuilder, filter: anytype, update: anytype, options: UpdateStatementOptions) !void {
@@ -381,7 +376,7 @@ pub const UpdateStatementBuilder = struct {
             .arrayFilters = options.array_filters,
         };
 
-        try self.update_statements.append(update_statement);
+        try self.update_statements.append(allocator, update_statement);
     }
 
     pub fn build(self: *UpdateStatementBuilder) UpdateStatement {

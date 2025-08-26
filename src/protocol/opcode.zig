@@ -2,28 +2,14 @@ const std = @import("std");
 const bson = @import("bson");
 const BsonDocument = bson.BsonDocument;
 const Allocator = std.mem.Allocator;
+const Reader = std.io.Reader;
+const Writer = std.io.Writer;
 
 // https://www.mongodb.com/docs/manual/reference/mongodb-wire-protocol/
 
 // https://www.mongodb.com/docs/manual/legacy-opcodes/
 
-// pub fn writeCommand(writer: anytype, command: *BsonDocument, request_id: i32, response_to: i32, flags: OpMsg.OpMsgFlags) !void {
-//     var message = OpMsg{
-//         .header = MsgHeader{
-//             .message_length = 0,
-//             .request_id = request_id,
-//             .response_to = response_to,
-//             .op_code = OP_CODES.OP_MSG,
-//         },
-//         .flag_bits = flags.getFlagBits(),
-//         .section_document = .{ .document = command },
-//     };
-//     message.header.message_length = calculateMessageLength(&message);
-
-//     return writeMessage(writer, &message);
-// }
-
-pub fn readMessage(allocator: Allocator, reader: anytype) !*OpMsg {
+pub fn readMessage(allocator: Allocator, reader: *Reader) !*OpMsg {
     var message = try allocator.create(OpMsg);
     message.* = OpMsg{
         .header = MsgHeader{
@@ -37,19 +23,17 @@ pub fn readMessage(allocator: Allocator, reader: anytype) !*OpMsg {
     };
 
     var reader_pos: i32 = 0;
-    const expected_message_len = try reader.readInt(i32, .little); // TODO : verify message length
+    const expected_message_len = try reader.takeInt(i32, .little); // TODO : verify message length
     message.header.message_length = expected_message_len;
-    message.header.request_id = try reader.readInt(i32, .little);
-    message.header.response_to = try reader.readInt(i32, .little);
-    message.header.op_code = @enumFromInt(try reader.readInt(i32, .little));
+    message.header.request_id = try reader.takeInt(i32, .little);
+    message.header.response_to = try reader.takeInt(i32, .little);
+    message.header.op_code = @enumFromInt(try reader.takeInt(i32, .little));
 
     reader_pos += @sizeOf(MsgHeader);
 
-    message.flag_bits = try reader.readInt(u32, .little);
+    message.flag_bits = try reader.takeInt(u32, .little);
     reader_pos += @sizeOf(u32);
-
-    const section_payload_type = try reader.readInt(u8, .little);
-
+    const section_payload_type = try reader.takeInt(u8, .little);
     blk_section_payload_type: switch (section_payload_type) {
         DocumentSection.payload_type => {
             message.section_document.document = try BsonDocument.readDocument(allocator, reader);
@@ -58,7 +42,7 @@ pub fn readMessage(allocator: Allocator, reader: anytype) !*OpMsg {
             if (reader_pos == expected_message_len) {
                 return message;
             }
-            continue :blk_section_payload_type try reader.readInt(u8, .little);
+            continue :blk_section_payload_type try reader.takeInt(u8, .little);
         },
         SequenceSection.payload_type => {
             reader_pos += @sizeOf(u8);
@@ -148,7 +132,7 @@ pub const OpMsg = struct {
         allocator.destroy(self);
     }
 
-    pub fn write(self: *const OpMsg, writer: anytype) !void {
+    pub fn write(self: *const OpMsg, writer: *std.Io.Writer) !void {
         try writer.writeInt(i32, self.header.message_length, .little);
         try writer.writeInt(i32, self.header.request_id, .little);
         try writer.writeInt(i32, self.header.response_to, .little);
@@ -321,7 +305,7 @@ const DocumentSection = struct {
     const payload_type = 0;
     document: *const BsonDocument,
 
-    pub fn write(self: *const DocumentSection, writer: anytype) !void {
+    pub fn write(self: *const DocumentSection, writer: *Writer) !void {
         try writer.writeInt(u8, DocumentSection.payload_type, .little);
         try writer.writeAll(self.document.raw_data);
     }
@@ -355,7 +339,7 @@ pub const SequenceSection = struct {
         }
     }
 
-    pub fn write(self: *const SequenceSection, writer: anytype) !void {
+    pub fn write(self: *const SequenceSection, writer: *Writer) !void {
         try writer.writeInt(u8, SequenceSection.payload_type, .little);
         try writer.writeInt(i32, self.size, .little);
         try writer.writeAll(self.identifier[0..]);

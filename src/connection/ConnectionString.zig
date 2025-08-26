@@ -12,7 +12,7 @@ pub const ConnectionString = struct {
     pub fn init(allocator: std.mem.Allocator) ConnectionString {
         return .{
             .scheme = "mongodb",
-            .hosts = std.ArrayList(Address).init(allocator),
+            .hosts = .empty,
             .options = std.StringHashMap([]const u8).init(allocator),
             .auth_database = null,
         };
@@ -26,7 +26,7 @@ pub const ConnectionString = struct {
         for (self.hosts.items) |host| {
             Address.deinit(&host, allocator);
         }
-        self.hosts.deinit();
+        self.hosts.deinit(allocator);
         self.options.deinit();
         if (self.auth_database) |auth_database| {
             allocator.free(auth_database);
@@ -64,7 +64,7 @@ pub const ConnectionString = struct {
             errdefer allocator.free(host_decoded_copy);
 
             const host_obj = try Address.parse(host_decoded_copy);
-            try conn.hosts.append(host_obj);
+            try conn.hosts.append(allocator, host_obj);
         }
 
         if (uri.query) |query_string_component| {

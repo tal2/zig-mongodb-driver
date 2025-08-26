@@ -22,12 +22,10 @@ pub const InsertOneOptions = struct {
     // rawData: ?bool = null,
 
     pub fn addToCommand(self: *const InsertOneOptions, command: *InsertCommand) void {
-
         command.bypassDocumentValidation = self.bypassDocumentValidation;
         command.comment = self.comment;
     }
 };
-
 
 pub const InsertManyOptions = struct {
     run_command_options: ?RunCommandOptions = null,
@@ -41,7 +39,6 @@ pub const InsertManyOptions = struct {
     // raw_data: ?bool = null,
 
     pub fn addToCommand(self: *const InsertManyOptions, command: *InsertCommand) void {
-
         command.bypassDocumentValidation = self.bypass_document_validation;
         command.ordered = self.ordered;
         command.comment = self.comment;
@@ -109,7 +106,7 @@ pub const InsertCommand = struct {
         }
 
         var documents_parsed = try std.ArrayList(*const bson.BsonDocument).initCapacity(allocator, documents.len);
-        errdefer documents_parsed.deinit();
+        errdefer documents_parsed.deinit(allocator);
 
         for (documents) |document| {
             if (@TypeOf(document) == *bson.BsonDocument) {
@@ -123,7 +120,7 @@ pub const InsertCommand = struct {
 
         var command: InsertCommand = .{
             .insert = collection_name,
-            .documents = try documents_parsed.toOwnedSlice(),
+            .documents = try documents_parsed.toOwnedSlice(allocator),
             .@"$db" = db_name,
         };
         options.addToCommand(&command);

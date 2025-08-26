@@ -25,13 +25,13 @@ pub const CursorIterator = struct {
     pub fn init(allocator: std.mem.Allocator, collection: *const Collection, cursor: *CursorInfo, batch_size: ?i32, session: ?*ClientSession) !CursorIterator {
         const first_batch_size = cursor.firstBatch.?.len;
         var buffer = try std.ArrayList(*BsonDocument).initCapacity(allocator, first_batch_size);
-        errdefer buffer.deinit();
+        errdefer buffer.deinit(allocator);
 
         if (cursor.firstBatch) |first_batch| {
             for (first_batch) |doc| {
                 defer doc.deinit(allocator);
                 const dupe_doc = try doc.dupe(allocator);
-                try buffer.append(dupe_doc);
+                try buffer.append(allocator, dupe_doc);
             }
             allocator.free(cursor.firstBatch.?);
             cursor.firstBatch = null;
@@ -73,7 +73,7 @@ pub const CursorIterator = struct {
             self.allocator.destroy(command);
             self.get_more_command = null;
         }
-        self.buffer.clearAndFree();
+        self.buffer.clearAndFree(self.allocator);
     }
 
     /// caller owns the returned slice
@@ -117,6 +117,6 @@ pub const CursorIterator = struct {
             }
         }
         self.count += self.buffer.items.len;
-        return try self.buffer.toOwnedSlice();
+        return try self.buffer.toOwnedSlice(self.allocator);
     }
 };

@@ -5,7 +5,7 @@
 
     .fingerprint = 0xbd07d9c418cb90a6, // Changing this has security and trust implications.
 
-    .minimum_zig_version = "0.14.0",
+    .minimum_zig_version = "0.15.1",
     .dependencies = .{
         .bson = .{ .path = "../zig-bson" },
         .uuid = .{

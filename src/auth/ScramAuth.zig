@@ -5,6 +5,7 @@ const sasl = @import("../sasl/sasl.zig");
 const Md5 = crypto.hash.Md5;
 const saslPrep = sasl.saslPrep;
 const pbkdf2 = crypto.pwhash.pbkdf2;
+const ArenaAllocator = std.heap.ArenaAllocator;
 
 pub const ScramMechanism = enum {
     SCRAM_SHA_1,
@@ -25,6 +26,7 @@ pub const ScramAuthConversation = struct {
     const MINIMUM_VALID_ITERATION_COUNT = 4096;
 
     allocator: std.mem.Allocator,
+    arena_allocator: ArenaAllocator,
     state: ConversationState,
     conversation_id: ?i32,
     mechanism: ScramMechanism,
@@ -41,15 +43,18 @@ pub const ScramAuthConversation = struct {
     server_first_message_bytes: ?[]const u8,
 
     pub fn init(allocator: std.mem.Allocator, mechanism: ScramMechanism, username: []const u8, password: []const u8) !ScramAuthConversation {
-        const client_nonce = try generateClientNonce(allocator);
+        var arena = ArenaAllocator.init(allocator);
+        const arena_allocator = arena.allocator();
+        const client_nonce = try generateClientNonce(arena_allocator);
 
         return ScramAuthConversation{
             .allocator = allocator,
+            .arena_allocator = arena,
             .state = .Initial,
             .conversation_id = null,
             .mechanism = mechanism,
-            .username = try allocator.dupe(u8, username),
-            .password = try allocator.dupe(u8, password),
+            .username = try arena_allocator.dupe(u8, username),
+            .password = try arena_allocator.dupe(u8, password),
             .client_nonce = client_nonce,
             .server_nonce = null,
             .salt = null,
@@ -63,6 +68,7 @@ pub const ScramAuthConversation = struct {
     }
 
     pub fn deinit(self: *ScramAuthConversation) void {
+        self.arena_allocator.deinit();
         self.allocator.free(self.client_nonce);
         if (self.server_nonce) |server_nonce| {
             self.allocator.free(server_nonce);
@@ -82,8 +88,6 @@ pub const ScramAuthConversation = struct {
         if (self.server_first_message_bytes) |server_first_message| {
             self.allocator.free(server_first_message);
         }
-        self.allocator.free(self.username);
-        self.allocator.free(self.password);
     }
 
     pub fn next(self: *ScramAuthConversation) !?[]const u8 {
@@ -105,9 +109,10 @@ pub const ScramAuthConversation = struct {
     }
 
     pub fn handleResponse(self: *ScramAuthConversation, response: []const u8) !void {
+        const allocator = self.arena_allocator.allocator();
         switch (self.state) {
             .ServerFirst => {
-                self.server_first_message_bytes = try self.allocator.dupe(u8, response);
+                self.server_first_message_bytes = try allocator.dupe(u8, response);
 
                 const server_first_message = try self.parseServerFirstMessage(self.server_first_message_bytes.?);
 
@@ -126,6 +131,8 @@ pub const ScramAuthConversation = struct {
     }
 
     fn parseServerFirstMessage(self: *ScramAuthConversation, message: []const u8) ScramError!ServerFirstMessage {
+        const allocator = self.arena_allocator.allocator();
+
         var server_nonce: ?[]const u8 = null;
         var salt: ?[]const u8 = null;
         var iteration_count: ?u32 = null;
@@ -160,16 +167,18 @@ pub const ScramAuthConversation = struct {
             return error.ServerNonceMismatch;
         }
 
-        const decoded_salt = base64Decode(self.allocator, salt.?) catch return error.InvalidSalt;
+        const decoded_salt = base64Decode(allocator, salt.?) catch return error.InvalidSalt;
 
         return .{
-            .server_nonce = try self.allocator.dupe(u8, server_nonce.?),
+            .server_nonce = try allocator.dupe(u8, server_nonce.?),
             .salt = decoded_salt,
             .iteration_count = iteration_count.?,
         };
     }
 
     fn parseServerFinalMessage(self: *ScramAuthConversation, message: []const u8) ScramError!ServerFinalMessage {
+        const allocator = self.arena_allocator.allocator();
+
         if (message.len < 2 or message[0] != 'v') {
             return error.InvalidServerFinalMessage;
         }
@@ -185,7 +194,7 @@ pub const ScramAuthConversation = struct {
 
             switch (key) {
                 'v' => {
-                    server_signature = try self.allocator.dupe(u8, value);
+                    server_signature = try allocator.dupe(u8, value);
                 },
                 else => return error.InvalidServerFinalMessage,
             }
@@ -199,44 +208,36 @@ pub const ScramAuthConversation = struct {
     }
 
     fn createClientFinalMessage(self: *ScramAuthConversation) ![]u8 {
-        var message = std.ArrayList(u8).init(self.allocator);
-        defer message.deinit();
-        const writer = message.writer();
+        const allocator = self.arena_allocator.allocator();
+
+        var message = try std.io.Writer.Allocating.initCapacity(allocator, 128);
+        errdefer message.deinit();
+        var writer = &message.writer;
 
         const channel_binding_with_cbind_input_base64 = "c=biws"; // no authzid, mongodb does not support channel binding
-        try message.appendSlice(channel_binding_with_cbind_input_base64);
-        try message.appendSlice(",r=");
-        try message.appendSlice(self.server_nonce.?);
+        try writer.writeAll(channel_binding_with_cbind_input_base64);
+        try writer.writeAll(",r=");
+        try writer.writeAll(self.server_nonce.?);
 
-        const client_final_message_without_proof = message.items.ptr[0..message.items.len];
+        const client_final_message_without_proof = writer.buffered();
         const auth_message = try self.createAuthMessage(client_final_message_without_proof);
-        defer self.allocator.free(auth_message);
-
         const salted_password = try self.generateSaltedPassword();
-        defer self.allocator.free(salted_password);
-
         const client_key = try self.generateClientKey(salted_password);
-        defer self.allocator.free(client_key);
-
         const stored_key = try self.generateStoredKey(client_key);
-        defer self.allocator.free(stored_key);
-
         const client_signature = try self.generateClientSignature(stored_key, auth_message);
-        defer self.allocator.free(client_signature);
-
         const client_proof = try self.generateClientProof(client_key, client_signature);
-        defer self.allocator.free(client_proof);
 
-        try message.appendSlice(",p=");
+        try writer.writeAll(",p=");
         try std.base64.standard.Encoder.encodeWriter(writer, client_proof);
 
         return try message.toOwnedSlice();
     }
 
     fn createAuthMessage(self: *ScramAuthConversation, client_final_message_without_proof: []const u8) ScramError![]u8 {
+        const allocator = self.arena_allocator.allocator();
         const capacity = self.client_first_message_bare.?.len + self.server_first_message_bytes.?.len + client_final_message_without_proof.len + 2;
 
-        const buffer = try self.allocator.alloc(u8, capacity);
+        const buffer = try allocator.alloc(u8, capacity);
         var writer = std.io.fixedBufferStream(buffer);
 
         _ = try writer.write(self.client_first_message_bare.?);
@@ -251,9 +252,10 @@ pub const ScramAuthConversation = struct {
     fn generateMongoHashedPassword(
         self: *ScramAuthConversation,
     ) ScramError![]const u8 {
+        const allocator = self.arena_allocator.allocator();
         const capacity = self.username.len + ":mongo:".len + self.password.len;
-        const hash_input = try self.allocator.alloc(u8, capacity);
-        defer self.allocator.free(hash_input);
+        const hash_input = try allocator.alloc(u8, capacity);
+        defer allocator.free(hash_input);
 
         var writer = std.io.fixedBufferStream(hash_input);
 
@@ -269,23 +271,24 @@ pub const ScramAuthConversation = struct {
     }
 
     fn generateSaltedPassword(self: *ScramAuthConversation) ScramError![]const u8 {
+        const allocator = self.arena_allocator.allocator();
         switch (self.mechanism) {
             .SCRAM_SHA_1 => {
                 const mongo_hashed_password = try self.generateMongoHashedPassword();
-                const mongo_hashed_password_normalized = try saslPrep(self.allocator, mongo_hashed_password);
-                defer self.allocator.free(mongo_hashed_password_normalized);
+                const mongo_hashed_password_normalized = try saslPrep(allocator, mongo_hashed_password);
+                defer allocator.free(mongo_hashed_password_normalized);
                 const sha_1_output_size = 20;
-                const salted_password = try self.allocator.alloc(u8, sha_1_output_size);
+                const salted_password = try allocator.alloc(u8, sha_1_output_size);
                 pbkdf2(salted_password, mongo_hashed_password_normalized, self.salt.?, self.iteration_count.?, crypto.auth.hmac.HmacSha1) catch {
                     return ScramError.PBKDF2Error;
                 };
                 return salted_password;
             },
             .SCRAM_SHA_256 => {
-                const password_sasl_prepped = try saslPrep(self.allocator, self.password);
-                defer self.allocator.free(password_sasl_prepped);
+                const password_sasl_prepped = try saslPrep(allocator, self.password);
+                defer allocator.free(password_sasl_prepped);
                 const sha_256_output_size = 32;
-                const salted_password = try self.allocator.alloc(u8, sha_256_output_size);
+                const salted_password = try allocator.alloc(u8, sha_256_output_size);
                 pbkdf2(salted_password, password_sasl_prepped, self.salt.?, self.iteration_count.?, crypto.auth.hmac.sha2.HmacSha256) catch {
                     return ScramError.PBKDF2Error;
                 };
@@ -327,18 +330,20 @@ pub const ScramAuthConversation = struct {
         self: *ScramAuthConversation,
         salted_password: []const u8,
     ) Allocator.Error![]const u8 {
+        const allocator = self.arena_allocator.allocator();
+
         const key = "Client Key";
 
         switch (self.mechanism) {
             .SCRAM_SHA_1 => {
-                const result = try self.allocator.alloc(u8, 20);
+                const result = try allocator.alloc(u8, 20);
                 var hmac = crypto.auth.hmac.HmacSha1.init(salted_password);
                 hmac.update(key);
                 hmac.final(result[0..20]);
                 return result;
             },
             .SCRAM_SHA_256 => {
-                const result = try self.allocator.alloc(u8, 32);
+                const result = try allocator.alloc(u8, 32);
                 var hmac = crypto.auth.hmac.sha2.HmacSha256.init(salted_password);
                 hmac.update(key);
                 hmac.final(result[0..32]);
@@ -352,16 +357,18 @@ pub const ScramAuthConversation = struct {
         self: *ScramAuthConversation,
         client_key: []const u8,
     ) Allocator.Error![]const u8 {
+        const allocator = self.arena_allocator.allocator();
+
         switch (self.mechanism) {
             .SCRAM_SHA_1 => {
-                const result = try self.allocator.alloc(u8, 20);
+                const result = try allocator.alloc(u8, 20);
                 var hash = crypto.hash.Sha1.init(.{});
                 hash.update(client_key);
                 hash.final(result[0..20]);
                 return result;
             },
             .SCRAM_SHA_256 => {
-                const result = try self.allocator.alloc(u8, 32);
+                const result = try allocator.alloc(u8, 32);
                 var hash = crypto.hash.sha2.Sha256.init(.{});
                 hash.update(client_key);
                 hash.final(result[0..32]);
@@ -375,16 +382,18 @@ pub const ScramAuthConversation = struct {
         stored_key: []const u8,
         auth_message: []const u8,
     ) Allocator.Error![]const u8 {
+        const allocator = self.arena_allocator.allocator();
+
         switch (self.mechanism) {
             .SCRAM_SHA_1 => {
-                const result = try self.allocator.alloc(u8, 20);
+                const result = try allocator.alloc(u8, 20);
                 var hmac = crypto.auth.hmac.HmacSha1.init(stored_key);
                 hmac.update(auth_message);
                 hmac.final(result[0..20]);
                 return result;
             },
             .SCRAM_SHA_256 => {
-                const result = try self.allocator.alloc(u8, 32);
+                const result = try allocator.alloc(u8, 32);
                 var hmac = crypto.auth.hmac.sha2.HmacSha256.init(stored_key);
                 hmac.update(auth_message);
                 hmac.final(result[0..32]);
@@ -398,7 +407,9 @@ pub const ScramAuthConversation = struct {
         client_key: []const u8,
         client_signature: []const u8,
     ) Allocator.Error![]const u8 {
-        const result = try self.allocator.alloc(u8, client_key.len);
+        const allocator = self.arena_allocator.allocator();
+
+        const result = try allocator.alloc(u8, client_key.len);
 
         for (client_key, 0..) |key_byte, i| {
             result[i] = key_byte ^ client_signature[i];

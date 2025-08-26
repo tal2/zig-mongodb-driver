@@ -73,7 +73,7 @@ pub const Database = struct {
             .db_name = if (conn_str.auth_database) |auth_database| try allocator.dupe(u8, auth_database) else "admin",
             .stream = stream,
             .topology_description = topology_description,
-            .monitoring_threads = std.ArrayList(*MonitoringThreadContext).init(allocator),
+            .monitoring_threads = .empty,
             .pool = pool,
             .server_api = server_api,
             .client_config = try ClientConfig.init(allocator, &conn_str.hosts),
@@ -99,7 +99,7 @@ pub const Database = struct {
         }
         self.pool.deinit();
         self.allocator.destroy(self.pool);
-        self.monitoring_threads.deinit();
+        self.monitoring_threads.deinit(self.allocator);
         self.client_config.deinit(self.allocator);
         // self.allocator.destroy(self);
     }
@@ -117,7 +117,7 @@ pub const Database = struct {
 
         try self.handshake(current_server_description, &self.stream, credentials);
 
-        try self.monitoring_threads.ensureTotalCapacity(self.client_config.seeds.items.len);
+        try self.monitoring_threads.ensureTotalCapacity(self.allocator, self.client_config.seeds.items.len);
         for (self.client_config.seeds.items) |seed| {
             const thread_context = try self.allocator.create(MonitoringThreadContext);
             errdefer self.allocator.destroy(thread_context);
@@ -158,7 +158,6 @@ pub const Database = struct {
 
     fn endSessions(self: *Database) !void {
         const sessions = try self.server_session_pool.toOwnedSessions();
-        defer self.allocator.free(sessions);
         if (sessions.len == 0) {
             return;
         }
@@ -268,11 +267,8 @@ pub const Database = struct {
         last_update_time: i64,
         round_trip_time: u64,
     ) !void {
-
-
         self.topology_description.logical_session_timeout_minutes = hello_response.logicalSessionTimeoutMinutes;
         self.server_session_pool.logical_session_timeout_minutes = hello_response.logicalSessionTimeoutMinutes;
-
 
         switch (self.topology_description.type) {
             .Single => {
@@ -303,11 +299,9 @@ pub const Database = struct {
             },
 
             else => {
-
                 @panic("not implemented");
             },
         }
-
     }
 
     pub fn isServerSupportSessions(self: *const Database) bool {
@@ -443,14 +437,12 @@ pub const Database = struct {
         var command_serialized = try BsonDocument.fromObject(allocator, @TypeOf(command), command);
         errdefer command_serialized.deinit(allocator);
 
-
         const request_id = RequestIdGenerator.getNextRequestId();
         const command_op_msg = try opcode.OpMsg.init(allocator, command_serialized, request_id, 0, .{});
         defer command_op_msg.deinit(allocator);
 
         const response = try self.stream.send(allocator, command_op_msg);
         defer response.deinit(allocator);
-
 
         if (try ErrorResponse.isError(allocator, response.section_document.document)) {
             const error_response = try response.section_document.document.toObject(self.allocator, ErrorResponse, .{ .ignore_unknown_fields = true });
