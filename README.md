@@ -6,12 +6,14 @@
 
 ## Status: ⚠️ work-in-progress
 
-zig version: 0.14.1
+zig version: 0.15.1
 
 ### compatibility
-* currently aiming for mongodb v7.x and v8.x
+
+- currently aiming for mongodb v7.x and v8.x
 
 ### connectivity
+
 - [x] single server
 - [ ] replicaset
 - [ ] sharded
@@ -19,10 +21,12 @@ zig version: 0.14.1
 - [ ] server selection
 
 ### concurrency
+
 - [x] single-thread
 - [ ] multi-thread
 
 ### authentication
+
 - [x] SCRAM-SHA-256
 - [x] SCRAM-SHA-1
 - [x] SASL Mechanisms
@@ -33,24 +37,33 @@ zig version: 0.14.1
 - [ ] MONGODB-OIDC
 
 ### basic commands
-- [x]  generic run command
-- [x]  insertOne
-- [x]  insertMany
-- [x]  findOne
-- [x]  find
-- [x]  updateOne
-- [x]  updateMany
-- [x]  deleteOne
-- [x]  deleteMany
-- [x]  replaceOne
-- [x]  countDocuments
-- [x]  estimatedDocumentCount
+
+- [x] generic run command
+- [x] insertOne
+- [x] insertMany
+- [x] findOne
+- [x] find
+- [x] updateOne
+- [x] updateMany
+- [x] deleteOne
+- [x] deleteMany
+- [x] replaceOne
+- [x] countDocuments
+- [x] estimatedDocumentCount
+- [ ] distinct
 
 ### additional commands
+
+- [ ] findAndModify
 - [x] kill cursors
 - [x] end sessions
+- [ ] mapReduce
+- [ ] parallelCollectionScan
+- [ ] geoNear
+- [ ] geoSearch
 
 ### advanced operations
+
 - [x] aggregation pipeline
 - [x] bulk write operations
 - [x] sessions (implicit & explicit)
@@ -59,6 +72,7 @@ zig version: 0.14.1
 - [ ] write concern
 
 ### compression support
+
 - [x] no compression
 - [ ] snappy
 - [ ] zlib
@@ -351,6 +365,7 @@ zig version: 0.14.1
      .match(.{ .name = .{ .@"$ne" = null } })
      .sort(.{ .name = 1 })
      .group(.{ ._id = "$name", .count = .{ .@"$sum" = 1 } })
+     // and more ...
      .build() catch |err| {
         std.debug.print("Error building pipeline: {}\n", .{err});
         return;
