@@ -58,7 +58,7 @@ pub const Database = struct {
     pub fn init(allocator: Allocator, conn_str: *ConnectionString, server_api: ServerApi) !Database {
         bson.bson_types.BsonObjectId.initializeGenerator();
 
-        const stream = try ConnectionStream.fromConnectionString(conn_str);
+        const stream = try ConnectionStream.fromConnectionString(allocator, conn_str);
         const topology_description = try allocator.create(TopologyDescription);
         topology_description.type = .Single;
         topology_description.servers = std.AutoHashMap(Address, ServerDescription).init(allocator);
@@ -68,6 +68,8 @@ pub const Database = struct {
         try pool.init(pool_options);
         errdefer pool.deinit();
 
+        const seeds = try conn_str.hosts.clone(allocator);
+        conn_str.hosts.clearAndFree(allocator);
         return .{
             .allocator = allocator,
             .db_name = if (conn_str.auth_database) |auth_database| try allocator.dupe(u8, auth_database) else "admin",
@@ -76,7 +78,7 @@ pub const Database = struct {
             .monitoring_threads = .empty,
             .pool = pool,
             .server_api = server_api,
-            .client_config = try ClientConfig.init(allocator, &conn_str.hosts),
+            .client_config = ClientConfig.init(seeds),
 
             .server_session_pool = ServerSessionPool.init(allocator),
         };
@@ -113,7 +115,8 @@ pub const Database = struct {
 
         var current_server_description = try self.allocator.create(ServerDescription);
         defer current_server_description.deinit(self.allocator);
-        current_server_description.address = &self.client_config.seeds.items[0];
+
+        current_server_description.address = self.client_config.seeds.items[0].addrs[0];
 
         try self.handshake(current_server_description, &self.stream, credentials);
 
@@ -434,7 +437,7 @@ pub const Database = struct {
 
         self.server_api.addToCommand(command);
 
-        var command_serialized = try BsonDocument.fromObject(allocator, @TypeOf(command), command);
+        const command_serialized = try BsonDocument.fromObject(allocator, @TypeOf(command), command);
         errdefer command_serialized.deinit(allocator);
 
         const request_id = RequestIdGenerator.getNextRequestId();

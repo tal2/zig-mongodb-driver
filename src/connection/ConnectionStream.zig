@@ -5,25 +5,28 @@ const opcode = @import("../protocol/opcode.zig");
 const OpcodeMsg = opcode.OpMsg;
 
 pub const ConnectionStream = struct {
+    allocator: std.mem.Allocator,
     address: net.Address,
     stream: ?net.Stream = null,
     stream_buffer_write: [1024]u8 = undefined,
     stream_buffer_read: [1024]u8 = undefined,
     stream_writer: ?net.Stream.Writer = null,
     stream_reader: ?net.Stream.Reader = null,
-    pub fn fromConnectionString(connection_string: *const ConnectionString) !ConnectionStream {
-        const host = connection_string.hosts.items[0];
-        const port = host.port;
-        const ip = host.hostname; // TODO: resolve host to ip address - https://github.com/lun-4/zigdig , https://zigistry.dev/packages/github/milo-g/zigdns/
+    hostname: ?[]const u8 = null,
 
-        const address = try net.Address.resolveIp(ip, port);
+    pub fn fromConnectionString(allocator: std.mem.Allocator, connection_string: *const ConnectionString) !ConnectionStream {
+        const host = connection_string.hosts.items[0];
+        const address = host.addrs[0];
+
         return .{
+            .allocator = allocator,
             .address = address,
             .stream = null,
             .stream_buffer_write = undefined,
             .stream_buffer_read = undefined,
             .stream_writer = null,
             .stream_reader = null,
+            .hostname = if (host.canon_name) |canon_name| try allocator.dupe(u8, canon_name) else null,
         };
     }
 
