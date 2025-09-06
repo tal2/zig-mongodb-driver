@@ -19,15 +19,17 @@ pub const ConnectionString = struct {
     }
 
     pub fn deinit(self: *ConnectionString, allocator: std.mem.Allocator) void {
-        var key_it = self.options.keyIterator();
-        while (key_it.next()) |key| {
-            allocator.free(key.*);
+        var it_options = self.options.iterator();
+        while (it_options.next()) |entry| {
+            allocator.free(entry.key_ptr.*);
+            allocator.free(entry.value_ptr.*);
         }
+        self.options.deinit();
         for (self.hosts.items) |host| {
             Address.deinit(&host, allocator);
         }
         self.hosts.deinit(allocator);
-        self.options.deinit();
+
         if (self.auth_database) |auth_database| {
             allocator.free(auth_database);
         }
@@ -75,7 +77,8 @@ pub const ConnectionString = struct {
                     const key = try std.ascii.allocLowerString(allocator, opt[0..eq_pos]);
                     errdefer allocator.free(key);
 
-                    const value = opt[eq_pos + 1 ..];
+                    const value = try allocator.dupe(u8, opt[eq_pos + 1 ..]);
+                    errdefer allocator.free(value);
                     try conn.options.put(key, value);
                 }
             }
