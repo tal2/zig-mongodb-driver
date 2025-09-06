@@ -1,5 +1,6 @@
 const std = @import("std");
-const Address = @import("./Address.zig").Address;
+
+const Address = std.net.Address;
 const topology = @import("./topology.zig");
 const ClientConfig = @import("./ClientConfig.zig").ClientConfig;
 
@@ -24,7 +25,7 @@ pub const ServerType = enum {
 };
 
 pub const ServerDescription = struct {
-    address: *Address, // the address of the server. (not the same as field 'me')
+    address: Address, // the address of the server. (not the same as field 'me')
     @".error": ?[]const u8 = null, // information about the last error related to this server. Default null. MUST contain or be able to produce a string describing the error.
     round_trip_time: ?u64 = null, // the round trip time to the server. Default null.
     min_round_trip_time: ?u64 = null, // the minimum round trip time to the server. Default null.
