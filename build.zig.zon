@@ -12,6 +12,10 @@
             .url = "https://github.com/r4gus/uuid-zig/archive/refs/tags/0.3.2.tar.gz",
             .hash = "uuid-0.3.2-oOieIY54AACgyWA1nI8rtVBRqHwAg2DPnuKiM2FycatZ",
         },
+        .tls = .{
+            .url = "git+https://github.com/ianic/tls.zig.git#fd11fcfa77628bc2fb9de7fd1fecfe89339c93fc",
+            .hash = "tls-0.1.0-ER2e0mRIBQCvHQz8kf9k3xHQDwz4WH71ht44JoVycYmL",
+        },
     },
 
     .paths = .{

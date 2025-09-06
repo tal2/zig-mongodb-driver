@@ -22,8 +22,14 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     }).module("uuid");
 
+    const tls_mod = b.dependency("tls", .{
+        .target = target,
+        .optimize = optimize,
+    }).module("tls");
+
     lib_mod.addImport("bson", bson_mod);
     lib_mod.addImport("uuid", uuid_mod);
+    lib_mod.addImport("tls", tls_mod);
 
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
@@ -34,6 +40,7 @@ pub fn build(b: *std.Build) void {
     exe_mod.addImport("mongodb_driver_lib", lib_mod);
     exe_mod.addImport("bson", bson_mod);
     exe_mod.addImport("uuid", uuid_mod);
+    exe_mod.addImport("tls", tls_mod);
 
     const lib = b.addLibrary(.{
         .linkage = .static,
