@@ -46,6 +46,7 @@ const ResponseUnion = @import("./ResponseUnion.zig").ResponseUnion;
 pub const Database = struct {
     allocator: Allocator,
     db_name: []const u8,
+    app_name: []const u8,
     stream: ConnectionStream,
     topology_description: *TopologyDescription,
     monitoring_threads: std.ArrayList(*MonitoringThreadContext),
@@ -55,7 +56,7 @@ pub const Database = struct {
 
     server_session_pool: ServerSessionPool,
 
-    pub fn init(allocator: Allocator, conn_str: *ConnectionString, server_api: ServerApi) !Database {
+    pub fn init(allocator: Allocator, conn_str: *ConnectionString, app_name: []const u8, server_api: ServerApi) !Database {
         bson.bson_types.BsonObjectId.initializeGenerator();
 
         const stream = try ConnectionStream.fromConnectionString(allocator, conn_str);
@@ -73,6 +74,7 @@ pub const Database = struct {
         return .{
             .allocator = allocator,
             .db_name = if (conn_str.auth_database) |auth_database| try allocator.dupe(u8, auth_database) else "admin",
+            .app_name = app_name,
             .stream = stream,
             .topology_description = topology_description,
             .monitoring_threads = .empty,
@@ -183,7 +185,7 @@ pub const Database = struct {
         // const options: RunCommandOptions = .{
         //     .readPreference = .primary,
         // };
-        const command = try commands.makeHelloCommandForHandshake(allocator, self.db_name, "Zig Driver", self.server_api, credentials);
+        const command = try commands.makeHelloCommandForHandshake(allocator, self.db_name, self.app_name, self.server_api, credentials);
         defer command.deinit(allocator);
 
         const start_time = time.milliTimestamp();
