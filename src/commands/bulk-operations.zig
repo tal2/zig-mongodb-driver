@@ -533,7 +533,8 @@ pub const BulkWriteErrorResponse = struct {
 
     pub fn isError(allocator: Allocator, document: *const BsonDocument) !bool {
         const doc_view = BsonDocumentView.loadDocument(allocator, document);
-        return try doc_view.checkElementValue("ok", @as(f64, 0.0));
+        const ok_value = try doc_view.checkElement("ok", ErrorResponse.isElementValueFalsy);
+        return ok_value orelse error.UnexpectedDocumentFormat;
     }
 };
 

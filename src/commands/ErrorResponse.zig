@@ -4,11 +4,12 @@ const bson = @import("bson");
 const Allocator = std.mem.Allocator;
 const BsonDocument = bson.BsonDocument;
 const BsonDocumentView = bson.BsonDocumentView;
+const BsonElement = bson.BsonElement;
 
 pub const JsonParseError = error{UnexpectedToken} || std.json.Scanner.NextError;
 
 pub const ErrorResponse = struct {
-    ok: f64,
+    ok: i32,
     errmsg: []const u8,
     codeName: []const u8,
     code: i32,
@@ -88,6 +89,16 @@ pub const ErrorResponse = struct {
 
     pub fn isError(allocator: Allocator, document: *const BsonDocument) !bool {
         const doc_view = BsonDocumentView.loadDocument(allocator, document);
-        return try doc_view.checkElementValue("ok", @as(f64, 0.0));
+        const ok_value = try doc_view.checkElement("ok", isElementValueFalsy);
+        return ok_value orelse error.UnexpectedDocumentFormat;
+    }
+
+    pub fn isElementValueFalsy(element: *const BsonElement) !bool {
+        return switch (element.type) {
+            .double => (try element.getValueAs(f64)) == @as(f64, 0.0),
+            .int32 => (try element.getValueAs(i32)) == 0,
+            .int64 => (try element.getValueAs(i64)) == 0,
+            else => false,
+        };
     }
 };
