@@ -10,6 +10,7 @@ pub const ConnectionString = struct {
     hosts: std.ArrayList(*AddressList),
     auth_database: ?[]const u8 = null,
     options: std.StringHashMap([]const u8),
+    use_tls: ?bool = null,
 
     pub fn init(allocator: std.mem.Allocator) ConnectionString {
         return .{
@@ -17,6 +18,7 @@ pub const ConnectionString = struct {
             .hosts = .empty,
             .options = std.StringHashMap([]const u8).init(allocator),
             .auth_database = null,
+            .use_tls = null,
         };
     }
 
@@ -90,6 +92,8 @@ pub const ConnectionString = struct {
         if (path.len > 1) {
             conn.auth_database = try allocator.dupe(u8, path[1..]);
         }
+
+        conn.use_tls = if (conn.options.get("tls")) |tls| std.mem.eql(u8, tls, "true") else null;
 
         return conn;
     }
