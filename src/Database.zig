@@ -134,6 +134,11 @@ pub const Database = struct {
         }
     }
 
+    pub fn useDb(self: *Database, db_name: []const u8) !void {
+        self.allocator.free(self.db_name);
+        self.db_name = try self.allocator.dupe(u8, db_name);
+    }
+
     pub fn collection(self: *Database, collection_name: []const u8) Collection {
         return Collection.init(self, collection_name);
     }
