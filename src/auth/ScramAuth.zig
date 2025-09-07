@@ -266,8 +266,12 @@ pub const ScramAuthConversation = struct {
         var digest: [16]u8 = undefined;
         Md5.hash(hash_input, &digest, .{});
 
-        var hex_digest = std.fmt.bytesToHex(digest, .lower);
-        return hex_digest[0..];
+        const hex_digest = std.fmt.bytesToHex(digest, .lower);
+        const hex_digest_result = try allocator.alloc(u8, 32);
+
+        @memcpy(hex_digest_result, &hex_digest);
+
+        return hex_digest_result;
     }
 
     fn generateSaltedPassword(self: *ScramAuthConversation) ScramError![]const u8 {
