@@ -4,8 +4,8 @@ const net = std.net;
 const time = std.time;
 const Thread = std.Thread;
 
-const Address = @import("./Address.zig").Address;
 const MongodbClient = @import("../MongodbClient.zig").MongodbClient;
+const Address = std.net.Address;
 
 const server_discovery_and_monitoring = @import("../server-discovery-and-monitoring/root.zig");
 const ServerDescription = server_discovery_and_monitoring.ServerDescription;
@@ -24,11 +24,14 @@ pub const MonitoringThreadContext = struct {
     pub const ServerMonitoringOptions = struct {
         server_monitoring_mode: ServerMonitoringMode = .auto,
         heartbeat_frequency_ms: ?u64 = default_heartbeat_frequency_multithreaded_ms,
+        use_tls: bool,
     };
 
     allocator: std.mem.Allocator,
-    server_address: Address,
     client: *MongodbClient,
+    server_address: Address,
+    use_tls: bool,
+
     done: bool = false,
     stop_signal: bool = false,
     heartbeat_frequency_ns: u64 = default_heartbeat_frequency_multithreaded_ms * std.time.ns_per_ms,
@@ -46,6 +49,7 @@ pub const MonitoringThreadContext = struct {
             .allocator = allocator,
             .client = client,
             .server_address = server_address,
+            .use_tls = options.use_tls,
             .server_monitoring_mode = options.server_monitoring_mode,
             .heartbeat_frequency_ns = (options.heartbeat_frequency_ms orelse default_heartbeat_frequency_multithreaded_ms) * std.time.ns_per_ms,
         };
@@ -79,7 +83,7 @@ pub const MonitoringThreadContext = struct {
         var current_server_description = try allocator.create(ServerDescription);
         defer current_server_description.deinit(allocator);
         current_server_description.* = ServerDescription{
-            .address = &context.server_address,
+            .address = context.server_address,
             .hosts = std.StringHashMap(Address).init(allocator),
             .passives = std.StringHashMap(Address).init(allocator),
             .arbiters = std.StringHashMap(Address).init(allocator),
@@ -87,9 +91,10 @@ pub const MonitoringThreadContext = struct {
             .last_update_time = 0,
         };
 
-        const stream_address = try net.Address.resolveIp(context.server_address.hostname, context.server_address.port);
         var stream = ConnectionStream{
-            .address = stream_address,
+            .allocator = allocator,
+            .address = context.server_address,
+            .use_tls = context.use_tls,
         };
         defer stream.close();
         try stream.connect();
