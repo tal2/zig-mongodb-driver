@@ -331,12 +331,12 @@ pub const UpdateCommandChainable = struct {
         var command: UpdateCommand = .{
             .update = self.collection.collection_name,
             .updates = update_statements,
-            .@"$db" = self.collection.database.db_name,
+            .@"$db" = self.collection.client.db_name,
         };
 
         options.addToCommand(&command);
 
-        return try self.collection.database.runWriteCommand(&command, options.run_command_options orelse RunCommandOptions{}, UpdateCommandResponse, ResponseWithWriteErrors);
+        return try self.collection.client.runWriteCommand(&command, options.run_command_options orelse RunCommandOptions{}, UpdateCommandResponse, ResponseWithWriteErrors);
     }
 };
 

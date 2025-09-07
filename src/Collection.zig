@@ -1,6 +1,6 @@
 const std = @import("std");
 const bson = @import("bson");
-const Database = @import("Database.zig").Database;
+const MongodbClient = @import("MongodbClient.zig").MongodbClient;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
@@ -38,14 +38,14 @@ const ResponseUnion = @import("ResponseUnion.zig").ResponseUnion;
 const CursorResponseUnion = @import("ResponseUnion.zig").CursorResponseUnion;
 
 pub const Collection = struct {
-    database: *Database,
+    client: *MongodbClient,
     allocator: Allocator,
     collection_name: []const u8,
 
-    pub fn init(database: *Database, name: []const u8) Collection {
+    pub fn init(client: *MongodbClient, name: []const u8) Collection {
         return .{
-            .database = database,
-            .allocator = database.allocator,
+            .client = client,
+            .allocator = client.allocator,
             .collection_name = name,
         };
     }
@@ -67,9 +67,9 @@ pub const Collection = struct {
         defer arena.deinit();
         const arena_allocator = arena.allocator();
 
-        var command_insert = try insert_commands.InsertCommand.makeInsertMany(arena_allocator, self.collection_name, self.database.db_name, docs, options);
+        var command_insert = try insert_commands.InsertCommand.makeInsertMany(arena_allocator, self.collection_name, self.client.db_name, docs, options);
 
-        return try self.database.runWriteCommand(&command_insert, options.run_command_options orelse RunCommandOptions{}, InsertCommandResponse, ResponseWithWriteErrors);
+        return try self.client.runWriteCommand(&command_insert, options.run_command_options orelse RunCommandOptions{}, InsertCommandResponse, ResponseWithWriteErrors);
     }
 
     pub fn insertOne(self: *const Collection, doc: anytype, options: InsertOneOptions) !WriteResponseUnion(InsertCommandResponse, ErrorResponse, ResponseWithWriteErrors) {
@@ -79,26 +79,26 @@ pub const Collection = struct {
                 @compileError("insertOne does not support arrays");
             }
         }
-        var command_insert = try insert_commands.InsertCommand.makeInsertOne(self.allocator, self.collection_name, self.database.db_name, doc, options);
+        var command_insert = try insert_commands.InsertCommand.makeInsertOne(self.allocator, self.collection_name, self.client.db_name, doc, options);
         defer command_insert.deinit(self.allocator);
 
-        return try self.database.runWriteCommand(&command_insert, options.run_command_options orelse RunCommandOptions{}, InsertCommandResponse, ResponseWithWriteErrors);
+        return try self.client.runWriteCommand(&command_insert, options.run_command_options orelse RunCommandOptions{}, InsertCommandResponse, ResponseWithWriteErrors);
     }
 
     pub fn find(self: *const Collection, filter: anytype, limit: LimitNumbered, options: FindOptions) !CursorResponseUnion {
         var run_command_options = options.run_command_options orelse RunCommandOptions{};
 
         if (run_command_options.session == null) {
-            const session = try self.database.tryGetSession(run_command_options);
+            const session = try self.client.tryGetSession(run_command_options);
             if (session != null) {
                 run_command_options.session = session;
                 session.?.mode = .ImplicitCursor;
             }
         }
-        var command = try commands.FindCommand.make(self.allocator, self.collection_name, self.database.db_name, filter, limit, options);
+        var command = try commands.FindCommand.make(self.allocator, self.collection_name, self.client.db_name, filter, limit, options);
         defer command.deinit(self.allocator);
 
-        const result = try self.database.runCommand(self.allocator, &command, run_command_options, FindCommandResponse);
+        const result = try self.client.runCommand(self.allocator, &command, run_command_options, FindCommandResponse);
         return switch (result) {
             .response => |response| {
                 defer response.deinit(self.allocator);
@@ -113,10 +113,10 @@ pub const Collection = struct {
         err: *ErrorResponse,
         null,
     } {
-        var command = try commands.FindCommand.makeFindOne(self.allocator, self.collection_name, self.database.db_name, filter, options);
+        var command = try commands.FindCommand.makeFindOne(self.allocator, self.collection_name, self.client.db_name, filter, options);
         defer command.deinit(self.allocator);
 
-        const result = try self.database.runCommand(self.allocator, &command, options.run_command_options orelse RunCommandOptions{}, FindCommandResponse);
+        const result = try self.client.runCommand(self.allocator, &command, options.run_command_options orelse RunCommandOptions{}, FindCommandResponse);
         return switch (result) {
             .response => |response| {
                 defer response.deinit(self.allocator);
@@ -132,38 +132,38 @@ pub const Collection = struct {
     }
 
     pub fn deleteOne(self: *const Collection, filter: anytype, options: DeleteOptions) !WriteResponseUnion(DeleteCommandResponse, ErrorResponse, ResponseWithWriteErrors) {
-        var command_delete = try delete_commands.DeleteCommand.makeDeleteOne(self.allocator, self.collection_name, self.database.db_name, filter, options);
+        var command_delete = try delete_commands.DeleteCommand.makeDeleteOne(self.allocator, self.collection_name, self.client.db_name, filter, options);
         defer command_delete.deinit(self.allocator);
 
-        return try self.database.runWriteCommand(&command_delete, options.run_command_options orelse RunCommandOptions{}, DeleteCommandResponse, ResponseWithWriteErrors);
+        return try self.client.runWriteCommand(&command_delete, options.run_command_options orelse RunCommandOptions{}, DeleteCommandResponse, ResponseWithWriteErrors);
     }
 
     pub fn deleteMany(self: *const Collection, filter: anytype, options: DeleteOptions) !WriteResponseUnion(DeleteCommandResponse, ErrorResponse, ResponseWithWriteErrors) {
-        var command_delete = try delete_commands.DeleteCommand.makeDeleteMany(self.allocator, self.collection_name, self.database.db_name, filter, options);
+        var command_delete = try delete_commands.DeleteCommand.makeDeleteMany(self.allocator, self.collection_name, self.client.db_name, filter, options);
         defer command_delete.deinit(self.allocator);
 
-        return try self.database.runWriteCommand(&command_delete, options.run_command_options orelse RunCommandOptions{}, DeleteCommandResponse, ResponseWithWriteErrors);
+        return try self.client.runWriteCommand(&command_delete, options.run_command_options orelse RunCommandOptions{}, DeleteCommandResponse, ResponseWithWriteErrors);
     }
 
     pub fn replaceOne(self: *const Collection, filter: anytype, replacement: anytype, options: ReplaceOptions) !WriteResponseUnion(ReplaceCommandResponse, ErrorResponse, ResponseWithWriteErrors) {
-        var command_replace = try replace_commands.ReplaceCommand.makeReplaceOne(self.allocator, self.collection_name, self.database.db_name, filter, replacement, options);
+        var command_replace = try replace_commands.ReplaceCommand.makeReplaceOne(self.allocator, self.collection_name, self.client.db_name, filter, replacement, options);
         defer command_replace.deinit(self.allocator);
 
-        return try self.database.runWriteCommand(&command_replace, options.run_command_options orelse RunCommandOptions{}, ReplaceCommandResponse, ResponseWithWriteErrors);
+        return try self.client.runWriteCommand(&command_replace, options.run_command_options orelse RunCommandOptions{}, ReplaceCommandResponse, ResponseWithWriteErrors);
     }
 
     pub fn updateOne(self: *const Collection, filter: anytype, update: anytype, options: update_commands.UpdateOneOptions) !WriteResponseUnion(UpdateCommandResponse, ErrorResponse, ResponseWithWriteErrors) {
-        var command_update = try UpdateCommand.makeUpdateOne(self.allocator, self.collection_name, self.database.db_name, filter, update, options);
+        var command_update = try UpdateCommand.makeUpdateOne(self.allocator, self.collection_name, self.client.db_name, filter, update, options);
         defer command_update.deinit(self.allocator);
 
-        return try self.database.runWriteCommand(&command_update, options.run_command_options orelse RunCommandOptions{}, UpdateCommandResponse, ResponseWithWriteErrors);
+        return try self.client.runWriteCommand(&command_update, options.run_command_options orelse RunCommandOptions{}, UpdateCommandResponse, ResponseWithWriteErrors);
     }
 
     pub fn updateMany(self: *const Collection, filter: anytype, update: anytype, options: update_commands.UpdateManyOptions) !WriteResponseUnion(UpdateCommandResponse, ErrorResponse, ResponseWithWriteErrors) {
-        var command_update = try UpdateCommand.makeUpdateMany(self.allocator, self.collection_name, self.database.db_name, filter, update, options);
+        var command_update = try UpdateCommand.makeUpdateMany(self.allocator, self.collection_name, self.client.db_name, filter, update, options);
         defer command_update.deinit(self.allocator);
 
-        return try self.database.runWriteCommand(&command_update, options.run_command_options orelse RunCommandOptions{}, UpdateCommandResponse, ResponseWithWriteErrors);
+        return try self.client.runWriteCommand(&command_update, options.run_command_options orelse RunCommandOptions{}, UpdateCommandResponse, ResponseWithWriteErrors);
     }
 
     pub fn updateChain(self: *const Collection) UpdateCommandChainable {
@@ -175,18 +175,18 @@ pub const Collection = struct {
         defer arena.deinit();
         const arena_allocator = arena.allocator();
 
-        var command = try commands.AggregateCommand.make(arena_allocator, self.collection_name, self.database.db_name, pipeline, options, cursor_options);
+        var command = try commands.AggregateCommand.make(arena_allocator, self.collection_name, self.client.db_name, pipeline, options, cursor_options);
 
         var run_command_options = options.run_command_options orelse RunCommandOptions{};
         if (run_command_options.session == null) {
-            const session = try self.database.tryGetSession(run_command_options);
+            const session = try self.client.tryGetSession(run_command_options);
             if (session != null) {
                 run_command_options.session = session;
                 session.?.mode = .ImplicitCursor;
             }
         }
 
-        return switch (try self.database.runCommand(self.allocator, &command, run_command_options, FindCommandResponse)) {
+        return switch (try self.client.runCommand(self.allocator, &command, run_command_options, FindCommandResponse)) {
             .response => |response| {
                 defer response.deinit(self.allocator);
                 return .{ .cursor = try CursorIterator.init(self.allocator, self, response.cursor, options.batchSize, run_command_options.session) };
@@ -203,9 +203,9 @@ pub const Collection = struct {
         var pb = commands.PipelineBuilder.init(arena_allocator);
         const pipeline = try pb.match(filter).group(.{ ._id = 1, .n = .{ .@"$sum" = 1 } }).build();
 
-        var command = try commands.AggregateCommand.make(arena_allocator, self.collection_name, self.database.db_name, pipeline, options, .{});
+        var command = try commands.AggregateCommand.make(arena_allocator, self.collection_name, self.client.db_name, pipeline, options, .{});
 
-        const aggregate_command_response = try self.database.runCommand(arena_allocator, &command, options.run_command_options orelse RunCommandOptions{}, FindCommandResponse);
+        const aggregate_command_response = try self.client.runCommand(arena_allocator, &command, options.run_command_options orelse RunCommandOptions{}, FindCommandResponse);
         return switch (aggregate_command_response) {
             .response => |response| {
                 const SumResponse = struct {
@@ -227,21 +227,20 @@ pub const Collection = struct {
         n: i64,
         err: *ErrorResponse,
     } {
-        var command = try commands.CountCommand.makeEstimateCount(self.collection_name, self.database.db_name, options);
+        var command = try commands.CountCommand.makeEstimateCount(self.collection_name, self.client.db_name, options);
         defer command.deinit(self.allocator);
 
-        const result = try self.database.runCommand(self.allocator, &command, options.run_command_options orelse RunCommandOptions{}, commands.CountCommandResponse);
+        const result = try self.client.runCommand(self.allocator, &command, options.run_command_options orelse RunCommandOptions{}, commands.CountCommandResponse);
         return switch (result) {
             .response => |response| .{ .n = response.n },
             .err => |err| .{ .err = err },
         };
     }
 
-
     pub fn killCursors(self: *const Collection, cursor_ids: []const i64) !ResponseUnion(commands.KillCursorsCommandResponse, ErrorResponse) {
-        var kill_cursor_command = commands.KillCursorsCommand.make(self.collection_name, self.database.db_name, cursor_ids);
+        var kill_cursor_command = commands.KillCursorsCommand.make(self.collection_name, self.client.db_name, cursor_ids);
 
         const options = RunCommandOptions{};
-        return try self.database.runCommand(self.allocator, &kill_cursor_command, options, commands.KillCursorsCommandResponse);
+        return try self.client.runCommand(self.allocator, &kill_cursor_command, options, commands.KillCursorsCommandResponse);
     }
 };

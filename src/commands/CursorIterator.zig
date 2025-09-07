@@ -84,10 +84,10 @@ pub const CursorIterator = struct {
         if (self.buffer.items.len == 0) {
             if (self.get_more_command == null) {
                 self.get_more_command = try self.allocator.create(commands.GetMoreCommand);
-                self.get_more_command.?.* = commands.GetMoreCommand.make(self.collection.collection_name, self.collection.database.db_name, self.cursor_id, .{ .batchSize = self.batch_size });
+                self.get_more_command.?.* = commands.GetMoreCommand.make(self.collection.collection_name, self.collection.client.db_name, self.cursor_id, .{ .batchSize = self.batch_size });
             }
 
-            const result = try self.collection.database.runCommand(self.allocator, self.get_more_command.?, .{ .session = self.session }, commands.FindCommandResponse);
+            const result = try self.collection.client.runCommand(self.allocator, self.get_more_command.?, .{ .session = self.session }, commands.FindCommandResponse);
             switch (result) {
                 .response => |response| {
                     defer response.deinit(self.allocator);

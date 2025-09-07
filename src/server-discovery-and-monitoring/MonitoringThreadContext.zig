@@ -4,8 +4,8 @@ const net = std.net;
 const time = std.time;
 const Thread = std.Thread;
 
-const Database = @import("../Database.zig").Database;
 const Address = @import("./Address.zig").Address;
+const MongodbClient = @import("../MongodbClient.zig").MongodbClient;
 
 const server_discovery_and_monitoring = @import("../server-discovery-and-monitoring/root.zig");
 const ServerDescription = server_discovery_and_monitoring.ServerDescription;
@@ -27,15 +27,15 @@ pub const MonitoringThreadContext = struct {
     };
 
     allocator: std.mem.Allocator,
-    database: *Database,
     server_address: Address,
+    client: *MongodbClient,
     done: bool = false,
     stop_signal: bool = false,
     heartbeat_frequency_ns: u64 = default_heartbeat_frequency_multithreaded_ms * std.time.ns_per_ms,
 
     server_monitoring_mode: ServerMonitoringMode = .auto,
 
-    pub fn init(allocator: std.mem.Allocator, database: *Database, server_address: Address, options: ServerMonitoringOptions) !MonitoringThreadContext {
+    pub fn init(allocator: std.mem.Allocator, client: *MongodbClient, server_address: Address, options: ServerMonitoringOptions) !MonitoringThreadContext {
         if (options.heartbeat_frequency_ms) |heartbeat_frequency_ms| {
             if ((heartbeat_frequency_ms * std.time.ns_per_ms) < min_heartbeat_frequency_ns) {
                 return error.HeartbeatFrequencyTooLow;
@@ -44,7 +44,7 @@ pub const MonitoringThreadContext = struct {
 
         return MonitoringThreadContext{
             .allocator = allocator,
-            .database = database,
+            .client = client,
             .server_address = server_address,
             .server_monitoring_mode = options.server_monitoring_mode,
             .heartbeat_frequency_ns = (options.heartbeat_frequency_ms orelse default_heartbeat_frequency_multithreaded_ms) * std.time.ns_per_ms,
@@ -56,9 +56,9 @@ pub const MonitoringThreadContext = struct {
 
         defer if (!context.stop_signal) {
             var index: usize = 0;
-            for (context.database.monitoring_threads.items) |thread_context| {
+            for (context.client.monitoring_threads.items) |thread_context| {
                 if (context == thread_context) {
-                    _ = context.database.monitoring_threads.swapRemove(index);
+                    _ = context.client.monitoring_threads.swapRemove(index);
                     break;
                 }
                 index += 1;
@@ -73,7 +73,7 @@ pub const MonitoringThreadContext = struct {
     }
 
     fn monitorServer(context: *MonitoringThreadContext) !void {
-        const database = context.database;
+        const client = context.client;
         const allocator = context.allocator;
 
         var current_server_description = try allocator.create(ServerDescription);
@@ -94,9 +94,9 @@ pub const MonitoringThreadContext = struct {
         defer stream.close();
         try stream.connect();
 
-        try database.handshake(current_server_description, &stream, null);
+        try client.handshake(current_server_description, &stream, null);
 
-        const command_hello = try commands.makeHelloCommand(allocator, database.db_name, database.server_api);
+        const command_hello = try commands.makeHelloCommand(allocator, client.db_name, client.server_api);
         defer command_hello.deinit(allocator);
 
         var last_heartbeat_time_ms: i64 = time.milliTimestamp();
@@ -127,7 +127,7 @@ pub const MonitoringThreadContext = struct {
             const hello_response = try commands.HelloCommandResponse.parseBson(allocator, response.section_document.document);
             defer allocator.destroy(hello_response);
 
-            try database.handleHelloResponse(current_server_description, hello_response, now, round_trip_time);
+            try client.handleHelloResponse(current_server_description, hello_response, now, round_trip_time);
         }
     }
 };

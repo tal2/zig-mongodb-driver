@@ -43,7 +43,7 @@ const RequestIdGenerator = @import("./commands/RequestIdGenerator.zig");
 const opcode = @import("./protocol/opcode.zig");
 const ResponseUnion = @import("./ResponseUnion.zig").ResponseUnion;
 
-pub const Database = struct {
+pub const MongodbClient = struct {
     allocator: Allocator,
     db_name: []const u8,
     app_name: []const u8,
@@ -56,7 +56,7 @@ pub const Database = struct {
 
     server_session_pool: ServerSessionPool,
 
-    pub fn init(allocator: Allocator, conn_str: *ConnectionString, app_name: []const u8, server_api: ServerApi) !Database {
+    pub fn init(allocator: Allocator, conn_str: *ConnectionString, app_name: []const u8, server_api: ServerApi) !MongodbClient {
         bson.bson_types.BsonObjectId.initializeGenerator();
 
         const stream = try ConnectionStream.fromConnectionString(allocator, conn_str);
@@ -86,7 +86,7 @@ pub const Database = struct {
         };
     }
 
-    pub fn deinit(self: *Database) void {
+    pub fn deinit(self: *MongodbClient) void {
         self.endSessions() catch |err| {
             std.debug.print("error ending sessions: {any}\n", .{err});
         };
@@ -108,7 +108,7 @@ pub const Database = struct {
         // self.allocator.destroy(self);
     }
 
-    pub fn connect(self: *Database, credentials: ?MongoCredential) !void {
+    pub fn connect(self: *MongodbClient, credentials: ?MongoCredential) !void {
         if (credentials) |creds| {
             try creds.validate();
         }
@@ -125,22 +125,22 @@ pub const Database = struct {
         // TODO: server monitoring
     }
 
-    pub fn useDb(self: *Database, db_name: []const u8) !void {
+    pub fn useDb(self: *MongodbClient, db_name: []const u8) !void {
         self.allocator.free(self.db_name);
         self.db_name = try self.allocator.dupe(u8, db_name);
     }
 
-    pub fn collection(self: *Database, collection_name: []const u8) Collection {
+    pub fn collection(self: *MongodbClient, collection_name: []const u8) Collection {
         return Collection.init(self, collection_name);
     }
 
-    pub fn bulkWriteChain(self: *Database) !BulkWriteOpsChainable {
+    pub fn bulkWriteChain(self: *MongodbClient) !BulkWriteOpsChainable {
         const c = try self.allocator.create(Collection);
         c.* = self.collection("admin");
         return BulkWriteOpsChainable.init(c);
     }
 
-    pub fn startSession(self: *Database, options: ?*const SessionOptions) !*ClientSession {
+    pub fn startSession(self: *MongodbClient, options: ?*const SessionOptions) !*ClientSession {
         const client_session = try self.allocator.create(ClientSession);
         client_session.* = ClientSession{
             .allocator = self.allocator,
@@ -151,13 +151,13 @@ pub const Database = struct {
         return client_session;
     }
 
-    fn associateServerSession(self: *Database, client_session: *ClientSession) !void {
+    fn associateServerSession(self: *MongodbClient, client_session: *ClientSession) !void {
         if (client_session.server_session != null) return;
         const server_session = try self.server_session_pool.startSession();
         client_session.server_session = server_session;
     }
 
-    fn endSessions(self: *Database) !void {
+    fn endSessions(self: *MongodbClient) !void {
         const sessions = try self.server_session_pool.toOwnedSessions();
         if (sessions.len == 0) {
             return;
@@ -175,7 +175,7 @@ pub const Database = struct {
         };
     }
 
-    pub fn handshake(self: *Database, current_server_description: *ServerDescription, conn_stream: *ConnectionStream, credentials: ?MongoCredential) !void {
+    pub fn handshake(self: *MongodbClient, current_server_description: *ServerDescription, conn_stream: *ConnectionStream, credentials: ?MongoCredential) !void {
         const allocator = self.allocator;
 
         // const options: RunCommandOptions = .{
@@ -211,7 +211,7 @@ pub const Database = struct {
         }
     }
 
-    fn authConversation(self: *Database, allocator: Allocator, conn_stream: *ConnectionStream, creds: MongoCredential) !void {
+    fn authConversation(self: *MongodbClient, allocator: Allocator, conn_stream: *ConnectionStream, creds: MongoCredential) !void {
         var arena = ArenaAllocator.init(allocator);
         defer arena.deinit();
         const arena_allocator = arena.allocator();
@@ -262,7 +262,7 @@ pub const Database = struct {
     }
 
     pub fn handleHelloResponse(
-        self: *Database,
+        self: *MongodbClient,
         current_server_description: *ServerDescription,
         hello_response: *commands.HelloCommandResponse,
         last_update_time: i64,
@@ -305,11 +305,11 @@ pub const Database = struct {
         }
     }
 
-    pub fn isServerSupportSessions(self: *const Database) bool {
+    pub fn isServerSupportSessions(self: *const MongodbClient) bool {
         return self.topology_description.logical_session_timeout_minutes != null;
     }
 
-    pub fn tryGetSession(self: *Database, options: RunCommandOptions) !?*ClientSession {
+    pub fn tryGetSession(self: *MongodbClient, options: RunCommandOptions) !?*ClientSession {
         if (options.session) |explicit_session| {
             if (!self.isServerSupportSessions()) {
                 return error.ServerDoesNotSupportSessions;
@@ -326,7 +326,7 @@ pub const Database = struct {
         }
     }
 
-    pub fn runWriteCommand(self: *Database, command: anytype, options: RunCommandOptions, comptime ResponseType: type, comptime WriteErrorType: type) !WriteResponseUnion(ResponseType, ErrorResponse, WriteErrorType) {
+    pub fn runWriteCommand(self: *MongodbClient, command: anytype, options: RunCommandOptions, comptime ResponseType: type, comptime WriteErrorType: type) !WriteResponseUnion(ResponseType, ErrorResponse, WriteErrorType) {
         const client_session = try self.tryGetSession(options);
         defer if (client_session) |session| {
             if (session.mode == .Implicit) {
@@ -337,7 +337,7 @@ pub const Database = struct {
         return self.runWriteCommandWithOptionalSession(client_session, command, options, ResponseType, WriteErrorType);
     }
 
-    fn runWriteCommandWithOptionalSession(self: *Database, client_session: ?*ClientSession, command: anytype, options: RunCommandOptions, comptime ResponseType: type, comptime WriteErrorType: type) !WriteResponseUnion(ResponseType, ErrorResponse, WriteErrorType) {
+    fn runWriteCommandWithOptionalSession(self: *MongodbClient, client_session: ?*ClientSession, command: anytype, options: RunCommandOptions, comptime ResponseType: type, comptime WriteErrorType: type) !WriteResponseUnion(ResponseType, ErrorResponse, WriteErrorType) {
         comptime {
             const command_type_info = @typeInfo(@TypeOf(command));
             if (command_type_info != .pointer) {
@@ -375,7 +375,7 @@ pub const Database = struct {
         return try self.runWriteCommandOpcode(command_op_msg, ResponseType, WriteErrorType);
     }
 
-    pub fn runWriteCommandOpcode(self: *Database, command_op_msg: *const opcode.OpMsg, comptime ResponseType: type, comptime WriteErrorType: type) !WriteResponseUnion(ResponseType, ErrorResponse, WriteErrorType) {
+    pub fn runWriteCommandOpcode(self: *MongodbClient, command_op_msg: *const opcode.OpMsg, comptime ResponseType: type, comptime WriteErrorType: type) !WriteResponseUnion(ResponseType, ErrorResponse, WriteErrorType) {
         const response = try self.stream.send(self.allocator, command_op_msg);
         defer response.deinit(self.allocator);
 
@@ -394,7 +394,7 @@ pub const Database = struct {
         return .{ .response = try ResponseType.parseBson(self.allocator, response.section_document.document) };
     }
 
-    pub fn runCommand(self: *Database, allocator: Allocator, command: anytype, options: RunCommandOptions, comptime ResponseType: type) !ResponseUnion(ResponseType, ErrorResponse) {
+    pub fn runCommand(self: *MongodbClient, allocator: Allocator, command: anytype, options: RunCommandOptions, comptime ResponseType: type) !ResponseUnion(ResponseType, ErrorResponse) {
         const client_session = try self.tryGetSession(options);
         defer if (client_session) |session| {
             if (session.mode == .Implicit) {
@@ -406,7 +406,7 @@ pub const Database = struct {
         return result;
     }
 
-    fn runCommandWithOptionalSession(self: *Database, allocator: Allocator, client_session: ?*ClientSession, command: anytype, options: RunCommandOptions, comptime ResponseType: type) !ResponseUnion(ResponseType, ErrorResponse) {
+    fn runCommandWithOptionalSession(self: *MongodbClient, allocator: Allocator, client_session: ?*ClientSession, command: anytype, options: RunCommandOptions, comptime ResponseType: type) !ResponseUnion(ResponseType, ErrorResponse) {
         comptime {
             const command_type_info = @typeInfo(@TypeOf(command));
             if (command_type_info != .pointer) {
@@ -456,3 +456,9 @@ pub const Database = struct {
         return .{ .response = response_parsed };
     }
 };
+
+test {
+    _ = @import("./commands/root.zig");
+    _ = @import("./connection/ConnectionString.zig");
+    _ = @import("./connection/ConnectionStream.zig");
+}

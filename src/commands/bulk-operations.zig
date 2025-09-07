@@ -413,7 +413,7 @@ pub const BulkWriteOpsChainable = struct {
             .writeConcern = options.writeConcern,
         };
 
-        self.collection.database.server_api.addToCommand(&command);
+        self.collection.client.server_api.addToCommand(&command);
 
         const command_serialized = try BsonDocument.fromObject(arena_allocator, @TypeOf(command), command);
 
@@ -437,7 +437,7 @@ pub const BulkWriteOpsChainable = struct {
         const command_op_msg = try opcode.OpMsg.initSequence(arena_allocator, command_serialized, sequences_slice, 2, 0, .{});
         defer command_op_msg.deinit(arena_allocator);
 
-        return try self.collection.database.runWriteCommandOpcode(command_op_msg, BulkWriteResponse, BulkWriteErrorResponse);
+        return try self.collection.client.runWriteCommandOpcode(command_op_msg, BulkWriteResponse, BulkWriteErrorResponse);
     }
 };
 
