@@ -122,16 +122,7 @@ pub const Database = struct {
 
         try self.handshake(current_server_description, &self.stream, credentials);
 
-        try self.monitoring_threads.ensureTotalCapacity(self.allocator, self.client_config.seeds.items.len);
-        for (self.client_config.seeds.items) |seed| {
-            const thread_context = try self.allocator.create(MonitoringThreadContext);
-            errdefer self.allocator.destroy(thread_context);
-            thread_context.* = try MonitoringThreadContext.init(self.allocator, self, seed, .{});
-
-            try self.pool.spawn(MonitoringThreadContext.startServerMonitoring, .{thread_context});
-
-            self.monitoring_threads.appendAssumeCapacity(thread_context);
-        }
+        // TODO: server monitoring
     }
 
     pub fn useDb(self: *Database, db_name: []const u8) !void {
